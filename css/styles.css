@@ -469,6 +469,18 @@ input:focus, select:focus {
   font-size: 12px;
 }
 
+#familyTree svg {
+  border-radius: 8px;
+}
+
+#familyTree .empty-tree {
+  display: grid;
+  place-items: center;
+  min-height: 200px;
+  color: var(--muted);
+  font-size: 1rem;
+}
+
 @media (max-width: 980px) {
   .hero, .workspace { grid-template-columns: 1fr; }
   .control-panel { border-right: 0; border-bottom: 1px solid var(--line); }

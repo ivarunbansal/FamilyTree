@@ -11,8 +11,8 @@
     allMembers: [],
     members: [],
     byId: new Map(),
-    tree: null,
-    selectedPath: []
+    selectedPath: [],
+    treeD3: null
   };
 
   const el = {
@@ -51,13 +51,18 @@
   function bindEvents() {
     document.getElementById("themeToggle").addEventListener("click", () => {
       setTheme(document.documentElement.dataset.theme === "light" ? "dark" : "light");
+      if (state.members.length) renderTree(state.members);
     });
     el.retry.addEventListener("click", () => loadFamilyData(true));
     el.search.addEventListener("input", debounce(applyFilters, 160));
     el.generation.addEventListener("change", applyFilters);
     el.surname.addEventListener("change", applyFilters);
-    document.getElementById("expandAll").addEventListener("click", () => state.tree && state.tree.expandCollapse(null, true));
-    document.getElementById("collapseAll").addEventListener("click", () => state.tree && state.tree.expandCollapse(null, false));
+    document.getElementById("expandAll").addEventListener("click", () => {
+      if (state.treeD3 && state.treeD3.fitToScreen) state.treeD3.fitToScreen();
+    });
+    document.getElementById("collapseAll").addEventListener("click", () => {
+      if (state.treeD3 && state.treeD3.fitToScreen) state.treeD3.fitToScreen();
+    });
     document.getElementById("findRelationship").addEventListener("click", showRelationshipPath);
     document.getElementById("printButton").addEventListener("click", () => window.print());
     document.getElementById("pngButton").addEventListener("click", () => exportImage("png"));
@@ -229,52 +234,16 @@
   }
 
   function renderTree(members) {
-    if (!window.FamilyTree) {
-    renderFallbackTree(members);
-    return;
-  }
-    el.tree.innerHTML = "";
-    FamilyTree.templates.premium = Object.assign({}, FamilyTree.templates.tommy);
-    FamilyTree.templates.premium.size = [230, 138];
-    FamilyTree.templates.premium.node = '<rect x="0" y="0" height="138" width="230" rx="8" ry="8" fill="#1e293b" stroke="rgba(255,255,255,.24)" stroke-width="1"></rect><rect x="0" y="0" height="138" width="230" rx="8" ry="8" fill="url(#premiumGradient)" opacity=".82"></rect>';
-    FamilyTree.templates.premium.defs = '<linearGradient id="premiumGradient" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#1e293b"/><stop offset="54%" stop-color="#4f46e5"/><stop offset="100%" stop-color="#14b8a6"/></linearGradient><clipPath id="premiumPhoto"><circle cx="115" cy="38" r="27"></circle></clipPath>';
-    FamilyTree.templates.premium.img_0 = '<image preserveAspectRatio="xMidYMid slice" clip-path="url(#premiumPhoto)" xlink:href="{val}" x="88" y="11" width="54" height="54"></image><circle cx="115" cy="38" r="28" fill="none" stroke="rgba(255,255,255,.72)" stroke-width="3"></circle>';
-    FamilyTree.templates.premium.field_0 = '<text width="200" style="font-size: 15px; font-weight: 700;" fill="#ffffff" x="115" y="84" text-anchor="middle">{val}</text>';
-    FamilyTree.templates.premium.field_1 = '<text width="190" style="font-size: 12px;" fill="rgba(255,255,255,.78)" x="115" y="105" text-anchor="middle">{val}</text>';
-    FamilyTree.templates.premium.field_2 = '<text width="190" style="font-size: 12px;" fill="rgba(255,255,255,.78)" x="115" y="124" text-anchor="middle">{val}</text>';
-    const nodes = members.map(toTreeNode);
-    state.tree = new FamilyTree(el.tree, {
-      template: "premium",
-      nodes,
-      enableSearch: false,
-      mouseScrool: FamilyTree.action.zoom,
-      nodeBinding: {
-        field_0: "name",
-        field_1: "relationship",
-        field_2: "generationLabel",
-        img_0: "photo"
-      },
-      scaleInitial: FamilyTree.match.boundary,
-      collapse: { level: 3 },
-      toolbar: { zoom: true, fit: true, expandAll: true }
-    });
-    state.tree.on("click", (sender, args) => {
-      const member = state.byId.get(args.node.id);
-      if (member) openDrawer(member);
-      return false;
+    if (typeof renderD3Tree !== "function") {
+      renderFallbackTree(members);
+      return;
+    }
+    state.treeD3 = renderD3Tree(members, {
+      container: el.tree,
+      onNodeClick: openDrawer,
+      selectedPath: state.selectedPath
     });
   }
-
-  function toTreeNode(member) {
-  return {
-    id: member.id,
-    pid: member.fatherId || undefined,
-    name: member.name,
-    photo: member.photoUrl || emptyPhoto,
-    relationship: relationshipLabel(member),
-    generationLabel: "Generation " + (member.generation || "?")
-  };
-}
 
   function renderFallbackTree(members) {
     el.tree.innerHTML = `<div class="fallback-grid">${members.map((member) => `<button class="family-node" data-id="${escapeHtml(member.id)}"><img loading="lazy" src="${escapeHtml(member.photoUrl || emptyPhoto)}" alt=""><strong>${escapeHtml(member.name)}</strong><span>${escapeHtml(relationshipLabel(member))}</span><span>Gen ${escapeHtml(member.generation || "?")}</span></button>`).join("")}</div>`;
@@ -388,10 +357,7 @@
     }
     state.selectedPath = path;
     el.result.textContent = path.map((id) => state.byId.get(id)?.name || id).join(" -> ");
-    if (state.tree) {
-      state.tree.search(path[path.length - 1]);
-      path.forEach((id) => state.tree.get(id) && state.tree.center(id));
-    }
+    renderTree(state.members);
   }
 
   function shortestPath(start, end) {
