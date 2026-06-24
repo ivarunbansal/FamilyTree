@@ -266,20 +266,16 @@
   }
 
   function toTreeNode(member) {
-    const fatherVisible = state.members.some((m) => m.id === member.fatherId);
-    const motherVisible = state.members.some((m) => m.id === member.motherId);
-    return {
-      id: member.id,
-      fid: fatherVisible ? member.fatherId : undefined,
-      mid: motherVisible ? member.motherId : undefined,
-      pids: member.spouseId ? [member.spouseId] : undefined,
-      name: member.name,
-      photo: member.photoUrl || emptyPhoto,
-      relationship: relationshipLabel(member),
-      generation: member.generation || "?",
-      generationLabel: "Generation " + (member.generation || "?")
-    };
-  }
+  return {
+    id: member.id,
+    pid: member.fatherId || undefined,
+    ppid: member.motherId || undefined,
+    name: member.name,
+    photo: member.photoUrl || emptyPhoto,
+    relationship: relationshipLabel(member),
+    generationLabel: "Generation " + (member.generation || "?")
+  };
+}
 
   function renderFallbackTree(members) {
     el.tree.innerHTML = `<div class="fallback-grid">${members.map((member) => `<button class="family-node" data-id="${escapeHtml(member.id)}"><img loading="lazy" src="${escapeHtml(member.photoUrl || emptyPhoto)}" alt=""><strong>${escapeHtml(member.name)}</strong><span>${escapeHtml(relationshipLabel(member))}</span><span>Gen ${escapeHtml(member.generation || "?")}</span></button>`).join("")}</div>`;
