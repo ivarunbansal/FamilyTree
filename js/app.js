@@ -243,6 +243,7 @@
     FamilyTree.templates.premium.field_1 = '<text width="190" style="font-size: 12px;" fill="rgba(255,255,255,.78)" x="115" y="105" text-anchor="middle">{val}</text>';
     FamilyTree.templates.premium.field_2 = '<text width="190" style="font-size: 12px;" fill="rgba(255,255,255,.78)" x="115" y="124" text-anchor="middle">{val}</text>';
     const nodes = members.map(toTreeNode);
+    console.log("TREE NODES", nodes);
     state.tree = new FamilyTree(el.tree, {
       template: "premium",
       nodes,
