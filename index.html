@@ -27,6 +27,8 @@
           </span>
         </a>
         <nav class="nav-actions" aria-label="Primary actions">
+          <button class="text-button" id="addMemberBtn" type="button">+ Add</button>
+          <button class="icon-button" id="logoutBtn" type="button" aria-label="Logout" title="Logout" hidden>L</button>
           <button class="icon-button" id="themeToggle" type="button" aria-label="Toggle theme" title="Toggle theme">T</button>
           <button class="text-button" id="printButton" type="button">Print</button>
           <button class="text-button" id="pngButton" type="button">PNG</button>
@@ -111,5 +113,118 @@
       <div id="drawerContent"></div>
     </aside>
     <div class="scrim" id="drawerScrim" hidden></div>
+
+    <button class="fab" id="fabAdd" type="button" aria-label="Add family member" title="Add member">+</button>
+
+    <aside class="modal" id="loginModal" role="dialog" aria-modal="true" aria-hidden="true" aria-label="Admin login">
+      <div class="modal-panel glass" style="max-width:360px">
+        <div class="modal-header">
+          <h2>Admin Login</h2>
+          <button class="icon-button" id="closeLoginModal" type="button" aria-label="Close">&times;</button>
+        </div>
+        <form id="loginForm" novalidate>
+          <div class="form-grid" style="grid-template-columns:1fr">
+            <label class="field">
+              <span>Username</span>
+              <input id="loginUser" type="text" autocomplete="username" placeholder="admin">
+            </label>
+            <label class="field">
+              <span>Password</span>
+              <input id="loginPass" type="password" autocomplete="current-password" placeholder="****">
+            </label>
+          </div>
+          <div class="form-footer">
+            <button class="text-button" id="cancelLogin" type="button">Cancel</button>
+            <button class="primary-button" id="submitLogin" type="submit">Unlock</button>
+          </div>
+          <p id="loginError" class="muted" style="text-align:center;margin:10px 0 0"></p>
+        </form>
+      </div>
+    </aside>
+
+    <aside class="modal" id="addModal" role="dialog" aria-modal="true" aria-hidden="true" aria-label="Add family member">
+      <div class="modal-panel glass">
+        <div class="modal-header">
+          <h2>Add Family Member</h2>
+          <button class="icon-button" id="closeModal" type="button" aria-label="Close">&times;</button>
+        </div>
+        <form id="addForm" novalidate>
+          <div class="form-grid">
+            <label class="field required">
+              <span>Name</span>
+              <input id="fName" type="text" required placeholder="Full name">
+            </label>
+            <label class="field">
+              <span>Gender</span>
+              <select id="fGender">
+                <option value="">Select</option>
+                <option value="Male">Male</option>
+                <option value="Female">Female</option>
+                <option value="Other">Other</option>
+              </select>
+            </label>
+            <label class="field">
+              <span>Father</span>
+              <select id="fFather"><option value="">Select father</option></select>
+            </label>
+            <label class="field">
+              <span>Mother</span>
+              <select id="fMother"><option value="">Select mother</option></select>
+            </label>
+            <label class="field">
+              <span>Spouse</span>
+              <select id="fSpouse"><option value="">Select spouse</option></select>
+            </label>
+            <label class="field">
+              <span>Generation</span>
+              <input id="fGeneration" type="number" min="1" max="20" placeholder="Auto">
+            </label>
+            <label class="field">
+              <span>Date of Birth</span>
+              <input id="fDob" type="text" placeholder="e.g. 15 Mar 1985">
+            </label>
+            <label class="field">
+              <span>Marriage Date</span>
+              <input id="fMarriage" type="text" placeholder="e.g. 10 Jun 2010">
+            </label>
+            <label class="field">
+              <span>City</span>
+              <input id="fCity" type="text" placeholder="Current city">
+            </label>
+            <label class="field">
+              <span>Occupation</span>
+              <input id="fOccupation" type="text" placeholder="Job title">
+            </label>
+            <label class="field">
+              <span>Education</span>
+              <input id="fEducation" type="text" placeholder="Highest degree">
+            </label>
+            <label class="field">
+              <span>Photo URL</span>
+              <input id="fPhoto" type="url" placeholder="https://...">
+            </label>
+            <label class="field">
+              <span>Email</span>
+              <input id="fEmail" type="email" placeholder="email@example.com">
+            </label>
+            <label class="field">
+              <span>Phone</span>
+              <input id="fPhone" type="tel" placeholder="+91 ...">
+            </label>
+            <label class="field full-width">
+              <span>Bio</span>
+              <textarea id="fBio" rows="3" placeholder="Short biography"></textarea>
+            </label>
+          </div>
+          <div class="form-footer">
+            <button class="text-button" id="cancelModal" type="button">Cancel</button>
+            <button class="primary-button" id="submitForm" type="submit">Save Member</button>
+          </div>
+          <p class="form-hint" id="formHint">Data is saved directly to your Google Sheet.</p>
+        </form>
+      </div>
+    </aside>
+
+    <div id="toastContainer" aria-live="polite"></div>
   </body>
 </html>

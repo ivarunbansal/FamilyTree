@@ -7,6 +7,10 @@
   const cacheMinutes = Number(themeConfig.cacheMinutes || 15);
   const emptyPhoto = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160' viewBox='0 0 160 160'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' x2='1' y1='0' y2='1'%3E%3Cstop stop-color='%239f7aea'/%3E%3Cstop offset='1' stop-color='%232dd4bf'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='160' height='160' rx='80' fill='url(%23g)'/%3E%3Ccircle cx='80' cy='62' r='28' fill='white' fill-opacity='.88'/%3E%3Cpath d='M38 132c8-28 27-43 42-43s34 15 42 43' fill='white' fill-opacity='.88'/%3E%3C/svg%3E";
 
+  const AUTH_USER = "admin";
+  const AUTH_PASS = "admin";
+  const authKey = "family-tree-auth";
+
   const state = {
     allMembers: [],
     members: [],
@@ -33,7 +37,13 @@
     timeline: document.getElementById("timeline"),
     drawer: document.getElementById("profileDrawer"),
     drawerContent: document.getElementById("drawerContent"),
-    scrim: document.getElementById("drawerScrim")
+    scrim: document.getElementById("drawerScrim"),
+    addModal: document.getElementById("addModal"),
+    loginModal: document.getElementById("loginModal"),
+    fabAdd: document.getElementById("fabAdd"),
+    addForm: document.getElementById("addForm"),
+    loginForm: document.getElementById("loginForm"),
+    toast: document.getElementById("toastContainer")
   };
 
   document.addEventListener("DOMContentLoaded", init);
@@ -63,6 +73,17 @@
     document.getElementById("collapseAll").addEventListener("click", () => {
       if (state.treeD3 && state.treeD3.fitToScreen) state.treeD3.fitToScreen();
     });
+    document.getElementById("addMemberBtn").addEventListener("click", gateAdd);
+    el.fabAdd.addEventListener("click", gateAdd);
+    document.getElementById("closeModal").addEventListener("click", closeAddModal);
+    document.getElementById("cancelModal").addEventListener("click", closeAddModal);
+    el.addModal.addEventListener("click", (e) => { if (e.target === el.addModal) closeAddModal(); });
+    el.addForm.addEventListener("submit", submitMember);
+    document.getElementById("logoutBtn").addEventListener("click", () => { logout(); showToast("Logged out", ""); });
+    document.getElementById("closeLoginModal").addEventListener("click", closeLoginModal);
+    document.getElementById("cancelLogin").addEventListener("click", closeLoginModal);
+    el.loginModal.addEventListener("click", (e) => { if (e.target === el.loginModal) closeLoginModal(); });
+    el.loginForm.addEventListener("submit", handleLogin);
     document.getElementById("findRelationship").addEventListener("click", showRelationshipPath);
     document.getElementById("printButton").addEventListener("click", () => window.print());
     document.getElementById("pngButton").addEventListener("click", () => exportImage("png"));
@@ -298,6 +319,10 @@
     const parents = [state.byId.get(member.fatherId), state.byId.get(member.motherId)].filter(Boolean).map((m) => m.name).join(", ");
     const children = state.allMembers.filter((m) => m.fatherId === member.id || m.motherId === member.id).map((m) => m.name).join(", ");
     const contact = [member.email, member.phone].filter(Boolean).join(" | ");
+    const sheetUrl = config.googleSheetUrl || "";
+    const sheetMatch = sheetUrl.match(/\/d\/([^/]+)/);
+    const editSheetUrl = sheetMatch ? "https://docs.google.com/spreadsheets/d/" + sheetMatch[1] + "/edit" : "";
+
     el.drawerContent.innerHTML = `
       <div class="profile-hero">
         <img class="profile-photo" loading="lazy" src="${escapeHtml(member.photoUrl || emptyPhoto)}" alt="">
@@ -309,6 +334,7 @@
             ${member.city ? `<span class="badge">${escapeHtml(member.city)}</span>` : ""}
             ${member.gender ? `<span class="badge">${escapeHtml(member.gender)}</span>` : ""}
           </div>
+          ${editSheetUrl ? `<a href="${editSheetUrl}" target="_blank" class="text-button edit-sheet-btn" style="display:inline-flex;margin-top:10px;text-decoration:none">Edit in Sheet</a>` : ""}
         </div>
       </div>
       <dl class="detail-list">
@@ -322,12 +348,7 @@
         ${detail("Contact", contact)}
       </dl>
       <h3>Bio</h3>
-      <p class="muted">${escapeHtml(member.bio || "No bio has been added yet.")}</p>
-      <h3>Family Gallery</h3>
-      <div class="gallery">
-        <img loading="lazy" src="${escapeHtml(member.photoUrl || emptyPhoto)}" alt="">
-        ${[parents, children].filter(Boolean).map((label) => `<img loading="lazy" src="${emptyPhoto}" alt="${escapeHtml(label)}">`).join("")}
-      </div>`;
+      <p class="muted">${escapeHtml(member.bio || "No bio has been added yet.")}</p>`;
     el.drawer.classList.add("open");
     el.drawer.setAttribute("aria-hidden", "false");
     el.scrim.hidden = false;
@@ -462,6 +483,191 @@
     el.error.hidden = false;
     el.errorMessage.textContent = message;
     el.syncStatus.textContent = "Family data is unavailable.";
+  }
+
+  function openAddModal() {
+    document.getElementById("fName").value = "";
+    document.getElementById("fGender").value = "";
+    document.getElementById("fFather").innerHTML = '<option value="">Select father</option>';
+    document.getElementById("fMother").innerHTML = '<option value="">Select mother</option>';
+    document.getElementById("fSpouse").innerHTML = '<option value="">Select spouse</option>';
+    document.getElementById("fGeneration").value = "";
+    document.getElementById("fDob").value = "";
+    document.getElementById("fMarriage").value = "";
+    document.getElementById("fCity").value = "";
+    document.getElementById("fOccupation").value = "";
+    document.getElementById("fEducation").value = "";
+    document.getElementById("fPhoto").value = "";
+    document.getElementById("fEmail").value = "";
+    document.getElementById("fPhone").value = "";
+    document.getElementById("fBio").value = "";
+    document.getElementById("formHint").textContent = "Data is saved directly to your Google Sheet.";
+    document.getElementById("formHint").style.color = "";
+
+    const people = state.allMembers.slice().sort((a, b) => a.name.localeCompare(b.name));
+    const males = people.filter((m) => m.gender === "Male");
+    const females = people.filter((m) => m.gender === "Female");
+    const anyOpts = (items) => items.map((m) => `<option value="${escapeHtml(m.id)}">${escapeHtml(m.name)}</option>`).join("");
+
+    document.getElementById("fFather").innerHTML = '<option value="">Select father</option>' + anyOpts(males);
+    document.getElementById("fMother").innerHTML = '<option value="">Select mother</option>' + anyOpts(females);
+    document.getElementById("fSpouse").innerHTML = '<option value="">Select spouse</option>' + anyOpts(people);
+
+    const maxId = state.allMembers.reduce((max, m) => {
+      const n = parseInt(m.id.replace(/\D/g, ""), 10);
+      return n > max ? n : max;
+    }, 0);
+    document.getElementById("fGeneration").placeholder = "Auto (suggested Gen " + (state.allMembers.length ? guessNextGeneration() : "1") + ")";
+
+    el.addModal.setAttribute("aria-hidden", "false");
+    document.body.style.overflow = "hidden";
+    setTimeout(() => document.getElementById("fName").focus(), 240);
+  }
+
+  function guessNextGeneration() {
+    const gens = [...new Set(state.allMembers.map((m) => Number(m.generation)).filter((g) => g))];
+    if (!gens.length) return 1;
+    return Math.max(...gens);
+  }
+
+  function closeAddModal() {
+    el.addModal.setAttribute("aria-hidden", "true");
+    document.body.style.overflow = "";
+  }
+
+  function isAuth() {
+    return sessionStorage.getItem(authKey) === "1";
+  }
+
+  function gateAdd() {
+    if (isAuth()) { openAddModal(); return; }
+    document.getElementById("loginUser").value = "";
+    document.getElementById("loginPass").value = "";
+    document.getElementById("loginError").textContent = "";
+    el.loginModal.setAttribute("aria-hidden", "false");
+    setTimeout(() => document.getElementById("loginUser").focus(), 240);
+  }
+
+  function closeLoginModal() {
+    el.loginModal.setAttribute("aria-hidden", "true");
+  }
+
+  function handleLogin(e) {
+    e.preventDefault();
+    const user = document.getElementById("loginUser").value.trim();
+    const pass = document.getElementById("loginPass").value;
+    if (user === AUTH_USER && pass === AUTH_PASS) {
+      sessionStorage.setItem(authKey, "1");
+      closeLoginModal();
+      updateAdminUI();
+      openAddModal();
+    } else {
+      document.getElementById("loginError").textContent = "Invalid credentials.";
+    }
+  }
+
+  function updateAdminUI() {
+    const btn = document.getElementById("addMemberBtn");
+    const lbtn = document.getElementById("logoutBtn");
+    if (isAuth()) {
+      btn.textContent = "+ Add";
+      btn.title = "Add family member";
+      lbtn.hidden = false;
+    } else {
+      lbtn.hidden = true;
+    }
+  }
+
+  function logout() {
+    sessionStorage.removeItem(authKey);
+    const btn = document.getElementById("addMemberBtn");
+    btn.textContent = "+ Add";
+    btn.title = "Login to add members";
+    document.getElementById("logoutBtn").hidden = true;
+  }
+
+  async function submitMember(e) {
+    e.preventDefault();
+    const name = document.getElementById("fName").value.trim();
+    if (!name) { showToast("Name is required.", "error"); return; }
+
+    const maxId = state.allMembers.reduce((max, m) => {
+      const n = parseInt(m.id.replace(/\D/g, ""), 10);
+      return n > max ? n : max;
+    }, 0);
+    const newId = "P" + (maxId + 1);
+
+    const data = {
+      ID: newId,
+      Name: name,
+      Gender: document.getElementById("fGender").value,
+      FatherID: document.getElementById("fFather").value,
+      MotherID: document.getElementById("fMother").value,
+      SpouseID: document.getElementById("fSpouse").value,
+      Generation: document.getElementById("fGeneration").value || "",
+      DOB: document.getElementById("fDob").value,
+      MarriageDate: document.getElementById("fMarriage").value,
+      City: document.getElementById("fCity").value,
+      Occupation: document.getElementById("fOccupation").value,
+      Education: document.getElementById("fEducation").value,
+      PhotoURL: document.getElementById("fPhoto").value,
+      Email: document.getElementById("fEmail").value,
+      Phone: document.getElementById("fPhone").value,
+      Bio: document.getElementById("fBio").value
+    };
+
+    document.getElementById("submitForm").disabled = true;
+    document.getElementById("submitForm").textContent = "Saving...";
+
+    try {
+      if (config.writeApiUrl) {
+        data._user = AUTH_USER;
+        data._pass = AUTH_PASS;
+        const resp = await fetch(config.writeApiUrl, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(data)
+        });
+        if (!resp.ok) throw new Error("Server returned " + resp.status);
+        const result = await resp.json();
+        if (!result.success) throw new Error(result.error || "Write failed");
+      } else {
+        const sheetUrl = config.googleSheetUrl || "";
+        const match = sheetUrl.match(/\/d\/([^/]+)/);
+        if (match) {
+          const editUrl = "https://docs.google.com/spreadsheets/d/" + match[1] + "/edit";
+          document.getElementById("formHint").innerHTML =
+            'Add <b>' + escapeHtml(name) + '</b> manually in the <a href="' + editUrl + '" target="_blank" style="color:var(--accent)">Google Sheet</a>, then refresh the page.';
+          document.getElementById("formHint").style.color = "var(--muted)";
+          showToast("No write API — open sheet to add manually", "");
+          document.getElementById("submitForm").disabled = false;
+          document.getElementById("submitForm").textContent = "Save Member";
+          return;
+        }
+        throw new Error("Add a writeApiUrl in config.js or use a Google Sheet URL");
+      }
+
+      showToast(name + " added! Refreshing tree...", "success");
+      closeAddModal();
+      await loadFamilyData(true);
+    } catch (err) {
+      showToast("Error: " + err.message, "error");
+    }
+
+    document.getElementById("submitForm").disabled = false;
+    document.getElementById("submitForm").textContent = "Save Member";
+  }
+
+  function showToast(message, type) {
+    const toast = document.createElement("div");
+    toast.className = "toast" + (type === "error" ? " error" : type === "success" ? " success" : "");
+    toast.textContent = message;
+    el.toast.appendChild(toast);
+    setTimeout(() => {
+      toast.style.opacity = "0";
+      toast.style.transition = "opacity 300ms";
+      setTimeout(() => toast.remove(), 300);
+    }, 3000);
   }
 
   function escapeHtml(value) {
