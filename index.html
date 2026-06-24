@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="description" content="A premium interactive family tree powered by Google Sheets.">
+    <meta name="theme-color" content="#111827">
+    <title>Family Tree</title>
+    <link rel="preconnect" href="https://cdn.jsdelivr.net">
+    <link rel="preconnect" href="https://balkan.app">
+    <link rel="stylesheet" href="css/styles.css">
+    <script src="config.js"></script>
+    <script defer src="https://balkan.app/js/FamilyTree.js"></script>
+    <script defer src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
+    <script defer src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
+    <script defer src="js/app.js"></script>
+  </head>
+  <body>
+    <div class="app-shell">
+      <header class="topbar glass">
+        <a class="brand" href="#tree" aria-label="Family tree home">
+          <span class="brand-mark">FT</span>
+          <span>
+            <strong id="siteTitle">Family Tree</strong>
+            <small>Live from Google Sheets</small>
+          </span>
+        </a>
+        <nav class="nav-actions" aria-label="Primary actions">
+          <button class="icon-button" id="themeToggle" type="button" aria-label="Toggle theme" title="Toggle theme">T</button>
+          <button class="text-button" id="printButton" type="button">Print</button>
+          <button class="text-button" id="pngButton" type="button">PNG</button>
+          <button class="text-button" id="pdfButton" type="button">PDF</button>
+        </nav>
+      </header>
+
+      <main>
+        <section class="hero">
+          <div class="hero-copy">
+            <p class="eyebrow">Interactive lineage archive</p>
+            <h1 id="heroTitle">Family Tree</h1>
+            <p>Search, filter, trace relationships, and explore family milestones from a single live Google Sheet.</p>
+          </div>
+          <div class="hero-panel glass" aria-live="polite">
+            <div class="status-dot"></div>
+            <span id="syncStatus">Waiting for sheet configuration</span>
+          </div>
+        </section>
+
+        <section class="stats-grid" id="statsGrid" aria-label="Family statistics">
+          <article class="stat glass"><span id="totalMembers">0</span><small>Members</small></article>
+          <article class="stat glass"><span id="totalGenerations">0</span><small>Generations</small></article>
+          <article class="stat glass"><span id="totalCities">0</span><small>Cities</small></article>
+          <article class="stat glass"><span id="totalSurnames">0</span><small>Surnames</small></article>
+        </section>
+
+        <section class="workspace glass" aria-label="Family tree workspace">
+          <aside class="control-panel" aria-label="Tree controls">
+            <label class="field">
+              <span>Search member</span>
+              <input id="searchInput" type="search" placeholder="Name, city, occupation">
+            </label>
+            <label class="field">
+              <span>Generation</span>
+              <select id="generationFilter"><option value="">All generations</option></select>
+            </label>
+            <label class="field">
+              <span>Surname</span>
+              <select id="surnameFilter"><option value="">All surnames</option></select>
+            </label>
+            <div class="button-row">
+              <button class="text-button" id="expandAll" type="button">Expand</button>
+              <button class="text-button" id="collapseAll" type="button">Collapse</button>
+            </div>
+            <div class="relationship-card">
+              <h2>Relationship Finder</h2>
+              <select id="personA"><option value="">From member</option></select>
+              <select id="personB"><option value="">To member</option></select>
+              <button class="primary-button" id="findRelationship" type="button">Show Path</button>
+              <p id="relationshipResult" class="muted"></p>
+            </div>
+          </aside>
+
+          <section class="tree-panel" id="tree">
+            <div id="loadingState" class="loading-state">
+              <span class="loader"></span>
+              <strong>Loading family records</strong>
+              <p>Fetching live data from Google Sheets.</p>
+            </div>
+            <div id="errorState" class="error-state" hidden>
+              <strong>We could not load the family data.</strong>
+              <p id="errorMessage">Please check the public Google Sheet URL in config.js.</p>
+              <button class="primary-button" id="retryButton" type="button">Try Again</button>
+            </div>
+            <div id="familyTree"></div>
+          </section>
+        </section>
+
+        <section class="timeline-section">
+          <div class="section-heading">
+            <p class="eyebrow">Family milestones</p>
+            <h2>Timeline</h2>
+          </div>
+          <div class="timeline" id="timeline"></div>
+        </section>
+      </main>
+    </div>
+
+    <aside class="drawer" id="profileDrawer" aria-hidden="true" aria-label="Profile details">
+      <button class="icon-button close-drawer" id="closeDrawer" type="button" aria-label="Close profile">x</button>
+      <div id="drawerContent"></div>
+    </aside>
+    <div class="scrim" id="drawerScrim" hidden></div>
+  </body>
+</html>
