@@ -229,10 +229,9 @@
   }
 
   function renderTree(members) {
-    if (!window.FamilyTree) {
-      renderFallbackTree(members);
-      return;
-    }
+    renderFallbackTree(members);
+    return;
+    
     el.tree.innerHTML = "";
     FamilyTree.templates.premium = Object.assign({}, FamilyTree.templates.tommy);
     FamilyTree.templates.premium.size = [230, 138];
