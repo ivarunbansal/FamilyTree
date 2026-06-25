@@ -86,6 +86,7 @@
         });
         setStatus('ok', allMembers.length);
         if (loadEl) loadEl.style.display = 'none';
+        if (errEl)  errEl.setAttribute('hidden', '');
         if (treeEl) treeEl.style.display = 'block';
         renderAll();
         return;

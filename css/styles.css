@@ -619,6 +619,7 @@ body {
   padding: 60px 24px; text-align: center;
   display: flex; flex-direction: column; align-items: center; gap: 12px;
 }
+.error-state[hidden] { display: none; }
 .error-state strong { font-family: var(--ff-display); font-size: 18px; color: var(--danger); }
 .error-state p { font-size: 14px; color: var(--text-2); max-width: 380px; }
 
