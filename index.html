@@ -1,230 +1,340 @@
 <!doctype html>
 <html lang="en">
-  <head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <meta name="description" content="A premium interactive family tree powered by Google Sheets.">
-    <meta name="theme-color" content="#111827">
-    <title>Family Tree</title>
-    <link rel="preconnect" href="https://cdn.jsdelivr.net">
-    <link rel="preconnect" href="https://d3js.org">
-    <link rel="stylesheet" href="css/styles.css">
-    <script src="config.js"></script>
-    <script src="https://d3js.org/d3.v7.min.js"></script>
-    <script defer src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
-    <script defer src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
-    <script defer src="js/tree-d3.js"></script>
-    <script defer src="js/app.js"></script>
-  </head>
-  <body>
-    <div class="app-shell">
-      <header class="topbar glass">
-        <a class="brand" href="#tree" aria-label="Family tree home">
-          <span class="brand-mark">FT</span>
-          <span>
-            <strong id="siteTitle">Family Tree</strong>
-            <small>Live from Google Sheets</small>
-          </span>
-        </a>
-        <nav class="nav-actions" aria-label="Primary actions">
-          <button class="text-button" id="addMemberBtn" type="button">+ Add</button>
-          <button class="icon-button" id="logoutBtn" type="button" aria-label="Logout" title="Logout" hidden>L</button>
-          <button class="icon-button" id="themeToggle" type="button" aria-label="Toggle theme" title="Toggle theme">T</button>
-          <button class="text-button" id="printButton" type="button">Print</button>
-          <button class="text-button" id="pngButton" type="button">PNG</button>
-          <button class="text-button" id="pdfButton" type="button">PDF</button>
-        </nav>
-      </header>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Interactive family tree — powered by Google Sheets">
+  <meta name="theme-color" content="#0f172a">
+  <title>Family Tree</title>
 
-      <main>
-        <section class="hero">
-          <div class="hero-copy">
-            <p class="eyebrow">Interactive lineage archive</p>
-            <h1 id="heroTitle">Family Tree</h1>
-            <p>Search, filter, trace relationships, and explore family milestones from a single live Google Sheet.</p>
-          </div>
-          <div class="hero-panel glass" aria-live="polite">
-            <div class="status-dot"></div>
-            <span id="syncStatus">Waiting for sheet configuration</span>
-          </div>
-        </section>
+  <!-- Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 
-        <section class="stats-grid" id="statsGrid" aria-label="Family statistics">
-          <article class="stat glass"><span id="totalMembers">0</span><small>Members</small></article>
-          <article class="stat glass"><span id="totalGenerations">0</span><small>Generations</small></article>
-          <article class="stat glass"><span id="totalCities">0</span><small>Cities</small></article>
-          <article class="stat glass"><span id="totalSurnames">0</span><small>Surnames</small></article>
-        </section>
+  <!-- Styles -->
+  <link rel="stylesheet" href="css/styles.css">
 
-        <section class="workspace glass" aria-label="Family tree workspace">
-          <aside class="control-panel" aria-label="Tree controls">
-            <label class="field">
-              <span>Search member</span>
-              <input id="searchInput" type="search" placeholder="Name, city, occupation">
-            </label>
-            <label class="field">
-              <span>Generation</span>
-              <select id="generationFilter"><option value="">All generations</option></select>
-            </label>
-            <label class="field">
-              <span>Surname</span>
-              <select id="surnameFilter"><option value="">All surnames</option></select>
-            </label>
-            <div class="button-row">
-              <button class="text-button" id="expandAll" type="button">Expand</button>
-              <button class="text-button" id="collapseAll" type="button">Collapse</button>
-            </div>
-            <div class="relationship-card">
-              <h2>Relationship Finder</h2>
-              <select id="personA"><option value="">From member</option></select>
-              <select id="personB"><option value="">To member</option></select>
-              <button class="primary-button" id="findRelationship" type="button">Show Path</button>
-              <p id="relationshipResult" class="muted"></p>
-            </div>
-          </aside>
+  <!-- Config (user edits this) -->
+  <script src="config.js"></script>
 
-          <section class="tree-panel" id="tree">
-            <div id="loadingState" class="loading-state">
-              <span class="loader"></span>
-              <strong>Loading family records</strong>
-              <p>Fetching live data from Google Sheets.</p>
-            </div>
-            <div id="errorState" class="error-state" hidden>
-              <strong>We could not load the family data.</strong>
-              <p id="errorMessage">Please check the public Google Sheet URL in config.js.</p>
-              <button class="primary-button" id="retryButton" type="button">Try Again</button>
-            </div>
-            <div id="familyTree"></div>
-          </section>
-        </section>
+  <!-- D3 for tree rendering -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.9.0/d3.min.js"></script>
 
-        <section class="timeline-section">
-          <div class="section-heading">
-            <p class="eyebrow">Family milestones</p>
-            <h2>Timeline</h2>
-          </div>
-          <div class="timeline" id="timeline"></div>
-        </section>
-      </main>
+  <!-- Export libraries (deferred) -->
+  <script defer src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
+  <script defer src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
+
+  <!-- App scripts -->
+  <script defer src="js/tree-d3.js"></script>
+  <script defer src="js/app.js"></script>
+</head>
+<body>
+
+<!-- ═══════════════════════════════════════════════ TOPBAR -->
+<header class="topbar">
+  <a class="brand" href="#" aria-label="Home">
+    <span class="brand-mark">FT</span>
+    <span>
+      <strong id="siteTitle">Gupta Family Tree</strong>
+      <small>Gupta Family · 3 generations</small>
+    </span>
+  </a>
+
+  <nav class="nav-actions" aria-label="Actions">
+    <span class="admin-badge" id="adminBadge" hidden>Admin</span>
+    <button class="btn btn-ghost" id="reloadData" type="button" title="Reload data">↻ Sync</button>
+    <button class="btn btn-ghost" id="addMemberBtn" type="button" hidden>+ Add member</button>
+    <button class="btn btn-ghost" id="printButton" type="button">Print</button>
+    <button class="btn btn-ghost" id="pngButton" type="button">PNG</button>
+    <button class="btn btn-ghost" id="themeToggle" type="button" aria-label="Toggle theme">◑</button>
+    <button class="btn btn-ghost" id="loginBtn" type="button">Admin</button>
+    <button class="btn btn-danger btn-sm" id="logoutBtn" type="button" hidden>Logout</button>
+  </nav>
+</header>
+
+<!-- ═══════════════════════════════════════════════ HERO -->
+<section class="hero">
+  <div class="hero-inner">
+    <div class="hero-copy">
+      <p class="eyebrow">Interactive lineage archive</p>
+      <h1 id="heroTitle">The Gupta <em>Family</em></h1>
+      <p id="heroTagline">27 members across 3 generations — explore the family lineage of Ganga Das Gupta.</p>
+
+      <div class="hero-stats">
+        <div class="hero-stat"><div class="num" id="totalMembers">—</div><div class="lbl">Members</div></div>
+        <div class="hero-stat"><div class="num" id="totalGenerations">—</div><div class="lbl">Generations</div></div>
+        <div class="hero-stat"><div class="num" id="totalCities">—</div><div class="lbl">Cities</div></div>
+        <div class="hero-stat"><div class="num" id="totalSurnames">—</div><div class="lbl">Surnames</div></div>
+      </div>
     </div>
 
-    <aside class="drawer" id="profileDrawer" aria-hidden="true" aria-label="Profile details">
-      <button class="icon-button close-drawer" id="closeDrawer" type="button" aria-label="Close profile">x</button>
-      <div id="drawerContent"></div>
-    </aside>
-    <div class="scrim" id="drawerScrim" hidden></div>
+    <div class="hero-badge" aria-live="polite">
+      <div class="status-dot"></div>
+      <span id="syncStatus">Waiting for sheet configuration</span>
+    </div>
+  </div>
+</section>
 
-    <button class="fab" id="fabAdd" type="button" aria-label="Add family member" title="Add member">+</button>
+<!-- ═══════════════════════════════════════════════ WORKSPACE -->
+<div class="workspace">
 
-    <aside class="modal" id="loginModal" role="dialog" aria-modal="true" aria-hidden="true" aria-label="Admin login">
-      <div class="modal-panel glass" style="max-width:360px">
-        <div class="modal-header">
-          <h2>Admin Login</h2>
-          <button class="icon-button" id="closeLoginModal" type="button" aria-label="Close">&times;</button>
-        </div>
-        <form id="loginForm" novalidate>
-          <div class="form-grid" style="grid-template-columns:1fr">
-            <label class="field">
-              <span>Username</span>
-              <input id="loginUser" type="text" autocomplete="username" placeholder="admin">
-            </label>
-            <label class="field">
-              <span>Password</span>
-              <input id="loginPass" type="password" autocomplete="current-password" placeholder="****">
-            </label>
-          </div>
-          <div class="form-footer">
-            <button class="text-button" id="cancelLogin" type="button">Cancel</button>
-            <button class="primary-button" id="submitLogin" type="submit">Unlock</button>
-          </div>
-          <p id="loginError" class="muted" style="text-align:center;margin:10px 0 0"></p>
-        </form>
+  <!-- Sidebar -->
+  <aside class="sidebar" aria-label="Controls">
+
+    <div class="sidebar-section">
+      <div class="sidebar-title">Search</div>
+      <div class="field">
+        <label for="searchInput">Search member</label>
+        <input id="searchInput" type="search" placeholder="Name, city, occupation…">
       </div>
-    </aside>
+    </div>
 
-    <aside class="modal" id="addModal" role="dialog" aria-modal="true" aria-hidden="true" aria-label="Add family member">
-      <div class="modal-panel glass">
-        <div class="modal-header">
-          <h2>Add Family Member</h2>
-          <button class="icon-button" id="closeModal" type="button" aria-label="Close">&times;</button>
-        </div>
-        <form id="addForm" novalidate>
-          <div class="form-grid">
-            <label class="field required">
-              <span>Name</span>
-              <input id="fName" type="text" required placeholder="Full name">
-            </label>
-            <label class="field">
-              <span>Gender</span>
-              <select id="fGender">
-                <option value="">Select</option>
-                <option value="Male">Male</option>
-                <option value="Female">Female</option>
-                <option value="Other">Other</option>
-              </select>
-            </label>
-            <label class="field">
-              <span>Father</span>
-              <select id="fFather"><option value="">Select father</option></select>
-            </label>
-            <label class="field">
-              <span>Mother</span>
-              <select id="fMother"><option value="">Select mother</option></select>
-            </label>
-            <label class="field">
-              <span>Spouse</span>
-              <select id="fSpouse"><option value="">Select spouse</option></select>
-            </label>
-            <label class="field">
-              <span>Generation</span>
-              <input id="fGeneration" type="number" min="1" max="20" placeholder="Auto">
-            </label>
-            <label class="field">
-              <span>Date of Birth</span>
-              <input id="fDob" type="text" placeholder="e.g. 15 Mar 1985">
-            </label>
-            <label class="field">
-              <span>Marriage Date</span>
-              <input id="fMarriage" type="text" placeholder="e.g. 10 Jun 2010">
-            </label>
-            <label class="field">
-              <span>City</span>
-              <input id="fCity" type="text" placeholder="Current city">
-            </label>
-            <label class="field">
-              <span>Occupation</span>
-              <input id="fOccupation" type="text" placeholder="Job title">
-            </label>
-            <label class="field">
-              <span>Education</span>
-              <input id="fEducation" type="text" placeholder="Highest degree">
-            </label>
-            <label class="field">
-              <span>Photo URL</span>
-              <input id="fPhoto" type="url" placeholder="https://...">
-            </label>
-            <label class="field">
-              <span>Email</span>
-              <input id="fEmail" type="email" placeholder="email@example.com">
-            </label>
-            <label class="field">
-              <span>Phone</span>
-              <input id="fPhone" type="tel" placeholder="+91 ...">
-            </label>
-            <label class="field full-width">
-              <span>Bio</span>
-              <textarea id="fBio" rows="3" placeholder="Short biography"></textarea>
-            </label>
-          </div>
-          <div class="form-footer">
-            <button class="text-button" id="cancelModal" type="button">Cancel</button>
-            <button class="primary-button" id="submitForm" type="submit">Save Member</button>
-          </div>
-          <p class="form-hint" id="formHint">Data is saved directly to your Google Sheet.</p>
-        </form>
+    <div class="sidebar-section">
+      <div class="sidebar-title">Filter</div>
+      <div class="field">
+        <label for="generationFilter">Generation</label>
+        <select id="generationFilter"><option value="">All generations</option></select>
       </div>
-    </aside>
+      <div class="field">
+        <label for="surnameFilter">Surname</label>
+        <select id="surnameFilter"><option value="">All surnames</option></select>
+      </div>
+      <div class="btn-row">
+        <button class="btn btn-outline btn-sm" id="expandAll">Expand all</button>
+        <button class="btn btn-ghost btn-sm" id="collapseAll">Reset</button>
+      </div>
+    </div>
 
-    <div id="toastContainer" aria-live="polite"></div>
-  </body>
+    <div class="sidebar-section">
+      <div class="sidebar-title">Relationship finder</div>
+      <div class="relationship-card">
+        <div class="field">
+          <label for="personA">From</label>
+          <select id="personA"><option value="">Select member…</option></select>
+        </div>
+        <div class="field">
+          <label for="personB">To</label>
+          <select id="personB"><option value="">Select member…</option></select>
+        </div>
+        <button class="btn btn-gold btn-sm" id="findRelationship" style="width:100%;justify-content:center">
+          Find path
+        </button>
+        <p id="relationshipResult"></p>
+      </div>
+    </div>
+
+  </aside>
+
+  <!-- Tree panel -->
+  <section class="tree-panel" aria-label="Family tree">
+    <div class="tree-toolbar">
+      <span class="tree-toolbar-title">Family Tree</span>
+      <small style="color:var(--text-3);font-size:12px">Scroll to zoom · drag to pan · click a person</small>
+    </div>
+
+    <div id="loadingState" class="loading-state">
+      <span class="loader"></span>
+      <strong>Loading family records</strong>
+      <p>Fetching live data from Google Sheets.</p>
+    </div>
+    <div id="errorState" class="error-state" hidden>
+      <strong>Could not load family data</strong>
+      <p id="errorMessage">Check the Google Sheet URL in config.js and make sure it is published to the web.</p>
+      <button class="btn btn-gold" id="retryButton">Try again</button>
+    </div>
+    <div id="treeContainer" style="display:none"></div>
+  </section>
+
+</div>
+
+<!-- ═══════════════════════════════════════════════ TIMELINE -->
+<section class="timeline-section">
+  <div class="section-heading">
+    <p class="eyebrow">Family milestones</p>
+    <h2>Timeline</h2>
+  </div>
+  <div class="timeline-scroll" id="timeline" role="list"></div>
+</section>
+
+<!-- ═══════════════════════════════════════════════ GALLERY -->
+<section class="gallery-section">
+  <div class="section-heading">
+    <p class="eyebrow">Family portraits</p>
+    <h2>Photo gallery</h2>
+  </div>
+  <p style="font-size:13px;color:var(--text-2);margin-bottom:16px">
+    Add a Google Drive shareable link or any image URL in the <code>PhotoURL</code> column of your sheet.
+  </p>
+  <div class="gallery-grid" id="galleryGrid"></div>
+</section>
+
+<!-- ═══════════════════════════════════════════════ PROFILE DRAWER -->
+<aside class="drawer" id="profileDrawer" aria-hidden="true" aria-label="Member profile">
+  <div id="drawerContent"></div>
+</aside>
+<div class="scrim" id="drawerScrim"></div>
+
+<!-- FAB -->
+<button class="fab" id="fabAdd" type="button" aria-label="Add family member" hidden>+</button>
+
+<!-- ═══════════════════════════════════════════════ LOGIN MODAL -->
+<div class="modal" id="loginModal" role="dialog" aria-modal="true" aria-label="Admin login">
+  <div class="modal-backdrop"></div>
+  <div class="modal-panel" style="max-width:360px">
+    <div class="modal-header">
+      <h2>Admin login</h2>
+      <button class="drawer-close" id="closeLoginModal" aria-label="Close">×</button>
+    </div>
+    <div class="modal-body">
+      <form id="loginForm" novalidate>
+        <div class="field">
+          <label for="loginPass">Password</label>
+          <input id="loginPass" type="password" placeholder="Enter admin password" autocomplete="current-password">
+        </div>
+        <p id="loginError" style="color:var(--danger);font-size:12px;min-height:16px;margin-top:4px"></p>
+      </form>
+      <p style="font-size:12px;color:var(--text-3);margin-top:12px;line-height:1.5">
+        Set the password in <code>config.js</code> → <code>ADMIN_PASSWORD</code>.<br>
+        Admins can add, edit, and delete members.
+      </p>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" id="cancelLogin">Cancel</button>
+      <button class="btn btn-gold" id="submitLogin">Unlock</button>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════ ADD / EDIT MODAL -->
+<div class="modal" id="addModal" role="dialog" aria-modal="true" aria-label="Add or edit member">
+  <div class="modal-backdrop"></div>
+  <div class="modal-panel">
+    <div class="modal-header">
+      <h2 id="modalTitle">Add family member</h2>
+      <button class="drawer-close" id="closeModal" aria-label="Close">×</button>
+    </div>
+    <div class="modal-body">
+      <form id="addForm" novalidate>
+        <input type="hidden" id="fId">
+        <div class="form-grid">
+          <div class="field required full">
+            <label for="fName">Full name <span style="color:var(--danger)">*</span></label>
+            <input id="fName" type="text" required placeholder="e.g. Rajesh Kumar Bansal">
+          </div>
+          <div class="field">
+            <label for="fGender">Gender</label>
+            <select id="fGender">
+              <option value="">Select…</option>
+              <option value="Male">Male</option>
+              <option value="Female">Female</option>
+              <option value="Other">Other</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="fGeneration">Generation</label>
+            <input id="fGeneration" type="number" min="1" max="20" placeholder="e.g. 3">
+          </div>
+          <div class="field">
+            <label for="fFather">Father</label>
+            <select id="fFather"><option value="">None</option></select>
+          </div>
+          <div class="field">
+            <label for="fMother">Mother</label>
+            <select id="fMother"><option value="">None</option></select>
+          </div>
+          <div class="field full">
+            <label for="fSpouse">Spouse</label>
+            <select id="fSpouse"><option value="">None</option></select>
+          </div>
+          <div class="field">
+            <label for="fDob">Date of birth</label>
+            <input id="fDob" type="text" placeholder="e.g. 15 Mar 1955">
+          </div>
+          <div class="field">
+            <label for="fDod">Date of death</label>
+            <input id="fDod" type="text" placeholder="Leave blank if living">
+          </div>
+          <div class="field">
+            <label for="fMarriage">Marriage date</label>
+            <input id="fMarriage" type="text" placeholder="e.g. 12 Feb 1980">
+          </div>
+          <div class="field">
+            <label for="fCity">City</label>
+            <input id="fCity" type="text" placeholder="Current city">
+          </div>
+          <div class="field">
+            <label for="fOccupation">Occupation</label>
+            <input id="fOccupation" type="text" placeholder="Job title">
+          </div>
+          <div class="field">
+            <label for="fEducation">Education</label>
+            <input id="fEducation" type="text" placeholder="Highest degree">
+          </div>
+          <div class="field full">
+            <label for="fPhoto">
+              Photo URL
+              <span style="font-weight:400;color:var(--text-3)">— paste a Google Drive share link or any image URL</span>
+            </label>
+            <input id="fPhoto" type="url" placeholder="https://drive.google.com/file/d/…/view or https://i.imgur.com/…">
+          </div>
+          <div class="field">
+            <label for="fEmail">Email</label>
+            <input id="fEmail" type="email" placeholder="email@example.com">
+          </div>
+          <div class="field">
+            <label for="fPhone">Phone</label>
+            <input id="fPhone" type="tel" placeholder="+91 98765 43210">
+          </div>
+          <div class="field full">
+            <label for="fBio">Biography</label>
+            <textarea id="fBio" rows="3" placeholder="A short biography or note about this person…"></textarea>
+          </div>
+        </div>
+      </form>
+
+      <!-- CSV output for pasting into Google Sheet -->
+      <div style="margin-top:16px">
+        <label style="font-size:12px;font-weight:600;color:var(--text-2);display:block;margin-bottom:6px">
+          Generated CSV row — copy and paste into your Google Sheet:
+        </label>
+        <textarea id="csvOutput" rows="3" readonly
+          style="width:100%;font-family:monospace;font-size:11px;padding:10px;
+                 border:1px solid var(--ivory-3);border-radius:8px;
+                 background:var(--ivory);color:var(--text);display:none;resize:none"></textarea>
+      </div>
+      <p class="form-hint" id="formHint">Fill in the form then click Save to generate a CSV row.</p>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" id="cancelModal">Cancel</button>
+      <button class="btn btn-gold" id="submitForm" type="submit" form="addForm">Save &amp; copy CSV</button>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════ LIGHTBOX -->
+<div class="lightbox" id="lightbox" role="dialog" aria-label="Photo" onclick="if(event.target===this)closeLightbox()">
+  <button class="lightbox-close" id="lightboxClose" aria-label="Close lightbox">×</button>
+  <img id="lightboxImg" src="" alt="">
+</div>
+
+<!-- ═══════════════════════════════════════════════ TOAST -->
+<div id="toastContainer" aria-live="polite"></div>
+
+<!-- ═══════════════════════════════════════════════ SCRIPT to show tree after load -->
+<script>
+  // Show/hide loading & tree states
+  const _origRender = typeof FamilyTreeRenderer !== 'undefined' ? FamilyTreeRenderer.render : null;
+  document.addEventListener('ft:loaded', function() {
+    document.getElementById('loadingState').style.display = 'none';
+    document.getElementById('treeContainer').style.display = 'block';
+  });
+  document.addEventListener('ft:error', function(e) {
+    document.getElementById('loadingState').style.display = 'none';
+    document.getElementById('errorState').removeAttribute('hidden');
+    const em = document.getElementById('errorMessage');
+    if (em && e.detail) em.textContent = e.detail;
+  });
+</script>
+
+</body>
 </html>

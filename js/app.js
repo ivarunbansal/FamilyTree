@@ -1,686 +1,700 @@
-(function () {
-  "use strict";
+/* =====================================================================
+   app.js — Family Tree Application Logic
+   Data: Google Sheets (CSV, public)
+   Updates: Admin edits the Google Sheet directly
+   Photos: Any image URL or Google Drive share link
+   ===================================================================== */
 
-  const config = window.FAMILY_TREE_CONFIG || {};
-  const themeConfig = config.theme || {};
-  const cacheKey = "family-tree-sheet-cache-v1";
-  const cacheMinutes = Number(themeConfig.cacheMinutes || 15);
-  const emptyPhoto = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160' viewBox='0 0 160 160'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' x2='1' y1='0' y2='1'%3E%3Cstop stop-color='%239f7aea'/%3E%3Cstop offset='1' stop-color='%232dd4bf'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='160' height='160' rx='80' fill='url(%23g)'/%3E%3Ccircle cx='80' cy='62' r='28' fill='white' fill-opacity='.88'/%3E%3Cpath d='M38 132c8-28 27-43 42-43s34 15 42 43' fill='white' fill-opacity='.88'/%3E%3C/svg%3E";
+(function() {
+  'use strict';
 
-  const AUTH_USER = "admin";
-  const AUTH_PASS = "admin";
-  const authKey = "family-tree-auth";
+  const C = window.FT_CONFIG || {};
+  let allMembers = [];
+  let isAdmin = false;
+  let currentMemberId = null;
 
-  const state = {
-    allMembers: [],
-    members: [],
-    byId: new Map(),
-    selectedPath: [],
-    treeD3: null
-  };
+  // ── INIT ─────────────────────────────────────────────────────────────
+  document.addEventListener('DOMContentLoaded', () => {
+    applyBranding();
+    bindStaticUI();
+    loadData();
+  });
 
-  const el = {
-    siteTitle: document.getElementById("siteTitle"),
-    heroTitle: document.getElementById("heroTitle"),
-    syncStatus: document.getElementById("syncStatus"),
-    loading: document.getElementById("loadingState"),
-    error: document.getElementById("errorState"),
-    errorMessage: document.getElementById("errorMessage"),
-    retry: document.getElementById("retryButton"),
-    tree: document.getElementById("familyTree"),
-    search: document.getElementById("searchInput"),
-    generation: document.getElementById("generationFilter"),
-    surname: document.getElementById("surnameFilter"),
-    personA: document.getElementById("personA"),
-    personB: document.getElementById("personB"),
-    result: document.getElementById("relationshipResult"),
-    timeline: document.getElementById("timeline"),
-    drawer: document.getElementById("profileDrawer"),
-    drawerContent: document.getElementById("drawerContent"),
-    scrim: document.getElementById("drawerScrim"),
-    addModal: document.getElementById("addModal"),
-    loginModal: document.getElementById("loginModal"),
-    fabAdd: document.getElementById("fabAdd"),
-    addForm: document.getElementById("addForm"),
-    loginForm: document.getElementById("loginForm"),
-    toast: document.getElementById("toastContainer")
-  };
-
-  document.addEventListener("DOMContentLoaded", init);
-
-  function init() {
-    document.title = config.siteTitle || "Family Tree";
-    el.siteTitle.textContent = config.siteTitle || "Family Tree";
-    el.heroTitle.textContent = config.siteTitle || "Family Tree";
-    document.documentElement.style.setProperty("--accent", themeConfig.accentColor || "#9f7aea");
-    setTheme(localStorage.getItem("family-tree-theme") || themeConfig.defaultMode || "dark");
-    bindEvents();
-    loadFamilyData();
+  function applyBranding() {
+    const t = C.SITE_TITLE || 'Family Tree';
+    document.title = t;
+    const el = document.getElementById('siteTitle');
+    if (el) el.textContent = t;
+    const h1 = document.getElementById('heroTitle');
+    if (h1) h1.innerHTML = formatHeroTitle(C.FAMILY_NAME || t);
+    const tag = document.getElementById('heroTagline');
+    if (tag) tag.textContent = C.TAGLINE || '';
   }
 
-  function bindEvents() {
-    document.getElementById("themeToggle").addEventListener("click", () => {
-      setTheme(document.documentElement.dataset.theme === "light" ? "dark" : "light");
-      if (state.members.length) renderTree(state.members);
-    });
-    el.retry.addEventListener("click", () => loadFamilyData(true));
-    el.search.addEventListener("input", debounce(applyFilters, 160));
-    el.generation.addEventListener("change", applyFilters);
-    el.surname.addEventListener("change", applyFilters);
-    document.getElementById("expandAll").addEventListener("click", () => {
-      if (state.treeD3 && state.treeD3.fitToScreen) state.treeD3.fitToScreen();
-    });
-    document.getElementById("collapseAll").addEventListener("click", () => {
-      if (state.treeD3 && state.treeD3.fitToScreen) state.treeD3.fitToScreen();
-    });
-    document.getElementById("addMemberBtn").addEventListener("click", gateAdd);
-    el.fabAdd.addEventListener("click", gateAdd);
-    document.getElementById("closeModal").addEventListener("click", closeAddModal);
-    document.getElementById("cancelModal").addEventListener("click", closeAddModal);
-    el.addModal.addEventListener("click", (e) => { if (e.target === el.addModal) closeAddModal(); });
-    el.addForm.addEventListener("submit", submitMember);
-    document.getElementById("logoutBtn").addEventListener("click", () => { logout(); showToast("Logged out", ""); });
-    document.getElementById("closeLoginModal").addEventListener("click", closeLoginModal);
-    document.getElementById("cancelLogin").addEventListener("click", closeLoginModal);
-    el.loginModal.addEventListener("click", (e) => { if (e.target === el.loginModal) closeLoginModal(); });
-    el.loginForm.addEventListener("submit", handleLogin);
-    document.getElementById("findRelationship").addEventListener("click", showRelationshipPath);
-    document.getElementById("printButton").addEventListener("click", () => window.print());
-    document.getElementById("pngButton").addEventListener("click", () => exportImage("png"));
-    document.getElementById("pdfButton").addEventListener("click", () => exportImage("pdf"));
-    document.getElementById("closeDrawer").addEventListener("click", closeDrawer);
-    el.scrim.addEventListener("click", closeDrawer);
+  function formatHeroTitle(name) {
+    // Italicize last word for style
+    const parts = name.trim().split(' ');
+    if (parts.length < 2) return name;
+    const last = parts.pop();
+    return parts.join(' ') + ' <em>' + last + '</em>';
   }
 
-  function setTheme(mode) {
-    const next = mode === "light" ? "light" : "dark";
-    document.documentElement.dataset.theme = next;
-    localStorage.setItem("family-tree-theme", next);
-  }
+  // ── DATA LOADING ─────────────────────────────────────────────────────
+  async function loadData() {
+    setStatus('loading');
+    const loadEl = document.getElementById('loadingState');
+    const errEl  = document.getElementById('errorState');
+    const treeEl = document.getElementById('treeContainer');
+    if (loadEl) loadEl.style.display = 'flex';
+    if (errEl)  errEl.setAttribute('hidden', '');
+    if (treeEl) treeEl.style.display = 'none';
 
-  async function loadFamilyData(forceRefresh) {
-    showLoading();
-    try {
-      if (!config.googleSheetUrl) {
-        throw new Error("Add a public Google Sheet URL, CSV export URL, Google Visualization URL, or SheetDB API URL in config.js.");
-      }
-      const cached = readCache();
-      if (!forceRefresh && cached) {
-        hydrate(cached.data, "Loaded from cache while keeping your sheet live.");
-        refreshInBackground();
-        return;
-      }
-      const rows = await fetchSheetRows(config.googleSheetUrl);
-      writeCache(rows);
-      hydrate(rows, "Live sheet synced just now.");
-    } catch (error) {
-      const cached = readCache(true);
-      if (cached) {
-        hydrate(cached.data, "Network issue. Showing the last saved copy.");
-        return;
-      }
-      showError(error.message);
-    }
-  }
+    // Determine which URL to use
+    const primaryUrl  = C.SHEET_CSV_URL  || '';
+    const fallbackUrl = C.SHEET_GVIZ_URL || '';
+    const usePrimary  = primaryUrl && !primaryUrl.includes('PASTE_PUBLISHED');
 
-  async function refreshInBackground() {
-    try {
-      const rows = await fetchSheetRows(config.googleSheetUrl);
-      writeCache(rows);
-      hydrate(rows, "Live sheet synced just now.");
-    } catch (error) {
-      el.syncStatus.textContent = "Using cache. Live refresh failed.";
-    }
-  }
+    const urlsToTry = usePrimary
+      ? [primaryUrl, fallbackUrl].filter(Boolean)
+      : [fallbackUrl, primaryUrl].filter(u => u && !u.includes('PASTE_PUBLISHED'));
 
-  async function fetchSheetRows(sheetUrl) {
-    const url = buildFetchUrl(sheetUrl);
-    const response = await fetch(url, { cache: "no-store" });
-    if (!response.ok) throw new Error("The sheet service returned " + response.status + ".");
-    const text = await response.text();
-    if (looksLikeJson(text)) return parseJsonRows(JSON.parse(stripGviz(text)));
-    return parseCsv(text);
-  }
-
-  function buildFetchUrl(input) {
-    const url = new URL(input);
-    if (url.hostname.includes("sheetdb.io")) return input;
-    if (url.pathname.includes("/gviz/tq")) return input;
-    if (url.pathname.includes("/export") || input.includes("output=csv")) return input;
-    if (url.hostname.includes("docs.google.com") && url.pathname.includes("/spreadsheets/d/")) {
-      const id = url.pathname.match(/\/d\/([^/]+)/)?.[1];
-      const gid = url.searchParams.get("gid") || "0";
-      return `https://docs.google.com/spreadsheets/d/${id}/gviz/tq?tqx=out:json&gid=${gid}`;
-    }
-    return input;
-  }
-
-  function looksLikeJson(text) {
-    const trimmed = text.trim();
-    return trimmed.startsWith("{") || trimmed.startsWith("[") || trimmed.startsWith("google.visualization");
-  }
-
-  function stripGviz(text) {
-    return text.replace(/^[^{]+/, "").replace(/;?\s*$/, "");
-  }
-
-  function parseJsonRows(payload) {
-    if (Array.isArray(payload)) return payload;
-    const tableRows = payload.table?.rows || [];
-    const headers = (payload.table?.cols || []).map((col) => col.label || col.id);
-    return tableRows.map((row) => {
-      const item = {};
-      (row.c || []).forEach((cell, index) => {
-        item[headers[index]] = cell && (cell.f || cell.v) ? String(cell.f || cell.v) : "";
-      });
-      return item;
-    });
-  }
-
-  function parseCsv(text) {
-    const rows = [];
-    let row = [], value = "", quoted = false;
-    for (let i = 0; i < text.length; i += 1) {
-      const char = text[i], next = text[i + 1];
-      if (char === '"' && quoted && next === '"') { value += '"'; i += 1; continue; }
-      if (char === '"') { quoted = !quoted; continue; }
-      if (char === "," && !quoted) { row.push(value); value = ""; continue; }
-      if ((char === "\n" || char === "\r") && !quoted) {
-        if (char === "\r" && next === "\n") i += 1;
-        row.push(value); rows.push(row); row = []; value = ""; continue;
-      }
-      value += char;
-    }
-    row.push(value); rows.push(row);
-    const headers = rows.shift().map(cleanKey);
-    return rows.filter((r) => r.some(Boolean)).map((r) => Object.fromEntries(headers.map((h, i) => [h, r[i] || ""])));
-  }
-
-  function hydrate(rows, status) {
-    const members = rows.map(normalizeMember).filter((member) => member.id && member.name);
-    state.allMembers = members;
-    state.byId = new Map(members.map((member) => [member.id, member]));
-    hideStates();
-    el.syncStatus.textContent = status;
-    updateStats(members);
-    updateFilterOptions(members);
-    renderTimeline(members);
-    applyFilters();
-  }
-
-  function normalizeMember(row) {
-    const find = (...keys) => {
-      for (const key of keys) {
-        const value = row[key] ?? row[cleanKey(key)] ?? row[key.toLowerCase()];
-        if (value !== undefined && value !== null) return String(value).trim();
-      }
-      return "";
-    };
-    return {
-      id: find("ID", "Id", "id"),
-      name: find("Name"),
-      gender: find("Gender"),
-      fatherId: find("FatherID", "Father ID", "Father"),
-      motherId: find("MotherID", "Mother ID", "Mother"),
-      spouseId: find("SpouseID", "Spouse ID", "Spouse"),
-      photoUrl: find("PhotoURL", "Photo URL", "Photo"),
-      dob: find("DOB", "Date of Birth"),
-      marriageDate: find("MarriageDate", "Date of Marriage"),
-      occupation: find("Occupation"),
-      education: find("Education"),
-      city: find("City"),
-      bio: find("Bio"),
-      email: find("Email"),
-      phone: find("Phone"),
-      generation: find("Generation", "Generation Number")
-    };
-  }
-
-  function cleanKey(key) {
-    return String(key || "").replace(/\s+/g, "").trim();
-  }
-
-  function applyFilters() {
-    const query = el.search.value.toLowerCase().trim();
-    const generation = el.generation.value;
-    const surname = el.surname.value;
-    const visible = state.allMembers.filter((member) => {
-      const haystack = [member.name, member.city, member.occupation, member.education, member.bio].join(" ").toLowerCase();
-      return (!query || haystack.includes(query)) &&
-        (!generation || member.generation === generation) &&
-        (!surname || getSurname(member.name) === surname);
-    });
-    state.members = visible;
-    renderTree(visible);
-  }
-
-  function renderTree(members) {
-    if (typeof renderD3Tree !== "function") {
-      renderFallbackTree(members);
+    if (!urlsToTry.length) {
+      setStatus('no-config');
+      if (loadEl) loadEl.style.display = 'none';
+      if (treeEl) treeEl.style.display = 'block';
       return;
     }
-    state.treeD3 = renderD3Tree(members, {
-      container: el.tree,
-      onNodeClick: openDrawer,
-      selectedPath: state.selectedPath
+
+    let lastErr = null;
+    for (const url of urlsToTry) {
+      try {
+        const sep = url.includes('?') ? '&' : '?';
+        const resp = await fetch(url + sep + '_t=' + Date.now());
+        if (!resp.ok) throw new Error('HTTP ' + resp.status);
+        const csv = await resp.text();
+        // gviz wraps values in extra quotes sometimes — normalise
+        const cleaned = cleanGvizCSV(csv);
+        allMembers = parseCSV(cleaned);
+        if (!allMembers.length) { setStatus('empty'); break; }
+        // Auto-detect deceased from "Late " prefix
+        allMembers.forEach(m => {
+          if (/^late\s/i.test(m.name)) {
+            m.dod = m.dod || 'deceased';
+            m.name = m.name.replace(/^late\s+/i, '');
+            m.namePrefix = 'Late';
+          }
+        });
+        setStatus('ok', allMembers.length);
+        if (loadEl) loadEl.style.display = 'none';
+        if (treeEl) treeEl.style.display = 'block';
+        renderAll();
+        return;
+      } catch(e) {
+        lastErr = e;
+        console.warn('URL failed, trying next:', url, e.message);
+      }
+    }
+
+    // All URLs failed
+    console.error(lastErr);
+    setStatus('error', 0, lastErr?.message);
+    if (loadEl) loadEl.style.display = 'none';
+    if (errEl)  errEl.removeAttribute('hidden');
+    const em = document.getElementById('errorMessage');
+    if (em) em.textContent = 'Could not load sheet. Make sure it is shared as "Anyone with the link can view". Error: ' + (lastErr?.message || '');
+  }
+
+  // gviz CSV sometimes wraps everything in extra outer quotes — strip them
+  function cleanGvizCSV(text) {
+    return text.split(/\r?\n/).map(line => {
+      // gviz wraps cell values in extra quotes like "","value","" - this is standard CSV, our parser handles it
+      return line;
+    }).join('\n');
+  }
+
+  function parseCSV(text) {
+    const lines = text.trim().split(/\r?\n/);
+    if (lines.length < 2) return [];
+    const headers = parseCSVRow(lines[0]).map(h => h.trim().toLowerCase());
+    const col = C.COLUMNS || {};
+    // Build column index map
+    const idx = {};
+    Object.entries(col).forEach(([key, headerName]) => {
+      const i = headers.indexOf(headerName.toLowerCase());
+      if (i >= 0) idx[key] = i;
     });
+    const members = [];
+    for (let i = 1; i < lines.length; i++) {
+      if (!lines[i].trim()) continue;
+      const vals = parseCSVRow(lines[i]);
+      const m = {};
+      Object.keys(idx).forEach(k => {
+        m[k] = (vals[idx[k]] || '').trim();
+      });
+      if (!m.id || !m.name) continue;
+      members.push(m);
+    }
+    return members;
   }
 
-  function renderFallbackTree(members) {
-    el.tree.innerHTML = `<div class="fallback-grid">${members.map((member) => `<button class="family-node" data-id="${escapeHtml(member.id)}"><img loading="lazy" src="${escapeHtml(member.photoUrl || emptyPhoto)}" alt=""><strong>${escapeHtml(member.name)}</strong><span>${escapeHtml(relationshipLabel(member))}</span><span>Gen ${escapeHtml(member.generation || "?")}</span></button>`).join("")}</div>`;
-    el.tree.querySelectorAll("[data-id]").forEach((button) => {
-      button.addEventListener("click", () => openDrawer(state.byId.get(button.dataset.id)));
+  function parseCSVRow(row) {
+    const result = [];
+    let cur = '', inQ = false;
+    for (let i = 0; i < row.length; i++) {
+      const ch = row[i];
+      if (ch === '"') { inQ = !inQ; continue; }
+      if (ch === ',' && !inQ) { result.push(cur); cur = ''; continue; }
+      cur += ch;
+    }
+    result.push(cur);
+    return result;
+  }
+
+  function setStatus(state, count, msg) {
+    const el = document.getElementById('syncStatus');
+    const dot = document.querySelector('.status-dot');
+    if (!el) return;
+    const states = {
+      loading: ['⟳ Loading family data…', 'orange'],
+      ok: [`${count} members loaded`, 'green'],
+      error: [`Error: ${msg || 'Could not load sheet'}`, 'red'],
+      'no-config': ['Set your Google Sheet URL in config.js', 'orange'],
+      empty: ['Sheet is empty — add members!', 'orange'],
+    };
+    const [text, color] = states[state] || [state, 'gray'];
+    el.textContent = text;
+    if (dot) dot.style.background = { green:'#22c55e', red:'#ef4444', orange:'#f59e0b', gray:'#94a3b8' }[color] || color;
+  }
+
+  // ── RENDER ALL ───────────────────────────────────────────────────────
+  function renderAll() {
+    updateStats();
+    renderTree();
+    renderTimeline();
+    renderGallery();
+    populateSelects();
+  }
+
+  function updateStats() {
+    const cities = new Set(allMembers.map(m => m.city).filter(Boolean));
+    const surnames = new Set(allMembers.map(m => (m.name||'').split(' ').pop()).filter(Boolean));
+    const gens = new Set(allMembers.map(m => m.generation).filter(Boolean));
+    setText('totalMembers', allMembers.length);
+    setText('totalGenerations', gens.size || calcGenerations());
+    setText('totalCities', cities.size);
+    setText('totalSurnames', surnames.size);
+  }
+
+  function calcGenerations() {
+    // BFS depth
+    const byId = {};
+    allMembers.forEach(m => byId[m.id] = m);
+    let max = 0;
+    allMembers.forEach(m => {
+      let d = 0, cur = m;
+      while (cur && d < 20) {
+        const pid = cur.fatherId || cur.motherId;
+        cur = pid ? byId[pid] : null;
+        d++;
+      }
+      if (d > max) max = d;
     });
+    return max || 1;
   }
 
-  function updateStats(members) {
-    document.getElementById("totalMembers").textContent = members.length;
-    document.getElementById("totalGenerations").textContent = new Set(members.map((m) => m.generation).filter(Boolean)).size;
-    document.getElementById("totalCities").textContent = new Set(members.map((m) => m.city).filter(Boolean)).size;
-    document.getElementById("totalSurnames").textContent = new Set(members.map((m) => getSurname(m.name)).filter(Boolean)).size;
+  function renderTree() {
+    FamilyTreeRenderer.init('treeContainer', openProfile);
+    FamilyTreeRenderer.render(allMembers);
   }
 
-  function updateFilterOptions(members) {
-    fillSelect(el.generation, "All generations", [...new Set(members.map((m) => m.generation).filter(Boolean))].sort(naturalSort));
-    fillSelect(el.surname, "All surnames", [...new Set(members.map((m) => getSurname(m.name)).filter(Boolean))].sort());
-    const people = members.slice().sort((a, b) => a.name.localeCompare(b.name));
-    fillSelect(el.personA, "From member", people.map((m) => [m.id, m.name]));
-    fillSelect(el.personB, "To member", people.map((m) => [m.id, m.name]));
-  }
-
-  function fillSelect(select, placeholder, values) {
-    const current = select.value;
-    select.innerHTML = `<option value="">${placeholder}</option>` + values.map((item) => {
-      const value = Array.isArray(item) ? item[0] : item;
-      const label = Array.isArray(item) ? item[1] : item;
-      return `<option value="${escapeHtml(value)}">${escapeHtml(label)}</option>`;
-    }).join("");
-    select.value = current;
-  }
-
-  function renderTimeline(members) {
+  function renderTimeline() {
+    const tl = document.getElementById('timeline');
+    if (!tl) return;
     const events = [];
-    members.forEach((member) => {
-      if (member.dob) events.push({ date: member.dob, title: `${member.name} was born`, meta: member.city });
-      if (member.marriageDate) events.push({ date: member.marriageDate, title: `${member.name} married`, meta: spouseName(member) });
+    allMembers.forEach(m => {
+      if (m.dob) events.push({ year: m.dob, type: 'birth', person: m.name });
+      if (m.dod) events.push({ year: m.dod, type: 'death', person: m.name });
+      if (m.marriageDate) events.push({ year: m.marriageDate, type: 'marriage', person: m.name });
     });
-    events.sort((a, b) => parseDate(a.date) - parseDate(b.date));
-    el.timeline.innerHTML = events.slice(0, 60).map((event) => `
-      <article class="timeline-item">
-        <time>${escapeHtml(event.date)}</time>
-        <h3>${escapeHtml(event.title)}</h3>
-        <p class="muted">${escapeHtml(event.meta || "Family milestone")}</p>
-      </article>
-    `).join("") || `<p class="muted">Add DOB and MarriageDate columns to your sheet to populate the timeline.</p>`;
+    events.sort((a,b) => parseInt(a.year) - parseInt(b.year));
+    const recent = events.slice(-30).reverse();
+    tl.innerHTML = recent.length ? recent.map(e => `
+      <div class="tl-card" title="${e.person}">
+        <div class="tl-year">${extractYear(e.year)}</div>
+        <div class="tl-event">${capitalize(e.type)}</div>
+        <div class="tl-person">${e.person}</div>
+        <span class="tl-type ${e.type}">${capitalize(e.type)}</span>
+      </div>`).join('')
+      : '<div class="empty-state">Add dates to your sheet to see the timeline.</div>';
   }
 
-  function openDrawer(member) {
-    if (!member) return;
-    const parents = [state.byId.get(member.fatherId), state.byId.get(member.motherId)].filter(Boolean).map((m) => m.name).join(", ");
-    const children = state.allMembers.filter((m) => m.fatherId === member.id || m.motherId === member.id).map((m) => m.name).join(", ");
-    const contact = [member.email, member.phone].filter(Boolean).join(" | ");
-    const sheetUrl = config.googleSheetUrl || "";
-    const sheetMatch = sheetUrl.match(/\/d\/([^/]+)/);
-    const editSheetUrl = sheetMatch ? "https://docs.google.com/spreadsheets/d/" + sheetMatch[1] + "/edit" : "";
+  function renderGallery() {
+    const grid = document.getElementById('galleryGrid');
+    if (!grid) return;
+    const withPhotos = allMembers.filter(m => m.photoUrl);
+    if (!withPhotos.length) {
+      grid.innerHTML = '<div class="empty-state">Add photo URLs to your Google Sheet to see the gallery.</div>';
+      return;
+    }
+    grid.innerHTML = withPhotos.map(m => {
+      const url = FamilyTreeRenderer.driveUrl(m.photoUrl);
+      return `<div class="gallery-item" onclick="openLightbox('${url}','${escHtml(m.name)}')">
+        <img src="${url}" alt="${escHtml(m.name)}" loading="lazy"
+             onerror="this.parentElement.style.display='none'">
+        <div class="gallery-overlay"><span>${escHtml(m.name)}</span></div>
+      </div>`;
+    }).join('');
+  }
 
-    el.drawerContent.innerHTML = `
-      <div class="profile-hero">
-        <img class="profile-photo" loading="lazy" src="${escapeHtml(member.photoUrl || emptyPhoto)}" alt="">
-        <div>
-          <p class="eyebrow">${escapeHtml(relationshipLabel(member))}</p>
-          <h2>${escapeHtml(member.name)}</h2>
-          <div class="badge-row">
-            <span class="badge">Generation ${escapeHtml(member.generation || "?")}</span>
-            ${member.city ? `<span class="badge">${escapeHtml(member.city)}</span>` : ""}
-            ${member.gender ? `<span class="badge">${escapeHtml(member.gender)}</span>` : ""}
-          </div>
-          ${editSheetUrl ? `<a href="${editSheetUrl}" target="_blank" class="text-button edit-sheet-btn" style="display:inline-flex;margin-top:10px;text-decoration:none">Edit in Sheet</a>` : ""}
+  function populateSelects() {
+    const opts = allMembers.map(m => `<option value="${m.id}">${escHtml(m.name)}</option>`).join('');
+    ['personA','personB','fFather','fMother','fSpouse'].forEach(id => {
+      const el = document.getElementById(id);
+      if (!el) return;
+      const blank = el.options[0] ? el.options[0].outerHTML : '';
+      el.innerHTML = blank + opts;
+    });
+    // Generation filter
+    const gens = [...new Set(allMembers.map(m => m.generation).filter(Boolean))].sort((a,b)=>a-b);
+    const gf = document.getElementById('generationFilter');
+    if (gf) {
+      gf.innerHTML = '<option value="">All generations</option>' +
+        gens.map(g => `<option value="${g}">Generation ${g}</option>`).join('');
+    }
+    // Surname filter
+    const snames = [...new Set(allMembers.map(m => (m.name||'').split(' ').pop()).filter(Boolean))].sort();
+    const sf = document.getElementById('surnameFilter');
+    if (sf) {
+      sf.innerHTML = '<option value="">All surnames</option>' +
+        snames.map(s => `<option value="${s}">${escHtml(s)}</option>`).join('');
+    }
+  }
+
+  // ── PROFILE DRAWER ───────────────────────────────────────────────────
+  function openProfile(id) {
+    currentMemberId = id;
+    const m = allMembers.find(x => x.id === id);
+    if (!m) return;
+    const drawer = document.getElementById('profileDrawer');
+    const content = document.getElementById('drawerContent');
+    if (!drawer || !content) return;
+
+    const photoUrl = FamilyTreeRenderer.driveUrl(m.photoUrl);
+    const photoHtml = photoUrl
+      ? `<img class="drawer-photo" src="${photoUrl}" alt="${escHtml(m.name)}"
+             onerror="this.outerHTML='<div class=drawer-photo-placeholder>${escHtml(m.name[0])}</div>'">`
+      : `<div class="drawer-photo-placeholder">${escHtml((m.name||'?')[0])}</div>`;
+
+    const gender = (m.gender||'').toLowerCase();
+    const genderLabel = { male:'♂ Male', female:'♀ Female', other:'⚧ Other' }[gender] || m.gender || '';
+
+    // Find relatives
+    const father   = allMembers.find(x => x.id === m.fatherId);
+    const mother   = allMembers.find(x => x.id === m.motherId);
+    const spouse   = allMembers.find(x => x.id === m.spouseId);
+    const children = allMembers.filter(x => x.fatherId === m.id || x.motherId === m.id);
+    const siblings = allMembers.filter(x =>
+      x.id !== m.id && (
+        (m.fatherId && x.fatherId === m.fatherId) ||
+        (m.motherId && x.motherId === m.motherId)
+      )
+    );
+
+    content.innerHTML = `
+      <div class="drawer-header">
+        ${photoHtml}
+        <div style="flex:1;min-width:0">
+          <div class="drawer-name">${m.namePrefix ? '<span style="font-size:14px;font-weight:400;color:var(--text-3)">Late </span>' : ''}${escHtml(m.name)}</div>
+          <div class="drawer-sub">${[m.occupation, m.city, m.generation ? 'Gen '+m.generation : ''].filter(Boolean).join(' · ') || ''}</div>
+          ${genderLabel ? `<span class="gender-badge ${gender}">${genderLabel}</span>` : ''}
+          ${m.dod ? '<span class="gender-badge" style="background:#f1f5f9;color:#64748b;margin-left:4px">† Deceased</span>' : ''}
         </div>
+        <button class="drawer-close" id="closeDrawer" aria-label="Close">×</button>
       </div>
-      <dl class="detail-list">
-        ${detail("Born", member.dob)}
-        ${detail("Married", member.marriageDate)}
-        ${detail("Occupation", member.occupation)}
-        ${detail("Education", member.education)}
-        ${detail("Spouse", spouseName(member))}
-        ${detail("Parents", parents)}
-        ${detail("Children", children)}
-        ${detail("Contact", contact)}
-      </dl>
-      <h3>Bio</h3>
-      <p class="muted">${escapeHtml(member.bio || "No bio has been added yet.")}</p>`;
-    el.drawer.classList.add("open");
-    el.drawer.setAttribute("aria-hidden", "false");
-    el.scrim.hidden = false;
+      <div class="drawer-body">
+        <div class="info-grid">
+          ${infoCard('Date of birth', m.dob)}
+          ${infoCard('Date of death', m.dod)}
+          ${infoCard('Education', m.education)}
+          ${infoCard('Generation', m.generation ? 'Gen ' + m.generation : '')}
+          ${infoCard('Marriage date', m.marriageDate)}
+          ${infoCard('Email', m.email)}
+          ${infoCard('Phone', m.phone)}
+          ${infoCard('City', m.city)}
+        </div>
+        ${m.bio ? `<div class="bio-section"><div class="bio-label">Biography</div><p>${escHtml(m.bio)}</p></div>` : ''}
+        ${relSection('Parents', [
+            father ? {m:father,role:'Father'} : null,
+            mother ? {m:mother,role:'Mother'} : null
+          ].filter(Boolean))}
+        ${relSection('Spouse', spouse ? [{m:spouse,role:'Spouse'}] : [])}
+        ${relSection('Children', children.map(c => ({m:c,role:'Child'})))}
+        ${relSection('Siblings', siblings.map(s => ({m:s,role:'Sibling'})))}
+      </div>
+      <div class="drawer-actions">
+        ${isAdmin ? `
+          <button class="btn btn-gold btn-sm" onclick="openEditModal('${m.id}')">Edit</button>
+          <button class="btn btn-danger btn-sm" onclick="confirmDelete('${m.id}')">Delete</button>
+        ` : ''}
+        <button class="btn btn-outline btn-sm" onclick="focusTreeNode('${m.id}')">Find in tree</button>
+      </div>
+    `;
+
+    drawer.classList.add('open');
+    document.getElementById('drawerScrim').classList.add('visible');
+    document.getElementById('closeDrawer').onclick = closeDrawer;
+  }
+
+  function infoCard(label, value) {
+    if (!value) return '';
+    return `<div class="info-card">
+      <div class="ic-label">${label}</div>
+      <div class="ic-value">${escHtml(value)}</div>
+    </div>`;
+  }
+
+  function relSection(title, items) {
+    if (!items.length) return '';
+    return `<div class="relatives-section">
+      <div class="relatives-title">${title}</div>
+      <div class="relative-chips">
+        ${items.map(({m, role}) => {
+          const photo = FamilyTreeRenderer.driveUrl(m.photoUrl);
+          const initial = (m.name||'?')[0].toUpperCase();
+          const photoEl = photo
+            ? `<img class="rc-photo" src="${photo}" alt="${escHtml(m.name)}"
+                   onerror="this.outerHTML='<div class=rc-initial>${initial}</div>'">`
+            : `<div class="rc-initial">${initial}</div>`;
+          return `<a class="relative-chip" href="#" onclick="event.preventDefault();openProfile('${m.id}')">
+            ${photoEl}
+            <div class="rc-info">
+              <div class="rc-name">${escHtml(m.name)}</div>
+              <div class="rc-role">${role}</div>
+            </div>
+          </a>`;
+        }).join('')}
+      </div>
+    </div>`;
   }
 
   function closeDrawer() {
-    el.drawer.classList.remove("open");
-    el.drawer.setAttribute("aria-hidden", "true");
-    el.scrim.hidden = true;
+    document.getElementById('profileDrawer').classList.remove('open');
+    document.getElementById('drawerScrim').classList.remove('visible');
+    currentMemberId = null;
   }
 
-  function detail(label, value) {
-    return value ? `<div><dt>${label}</dt><dd>${escapeHtml(value)}</dd></div>` : "";
+  // ── SEARCH & FILTER ──────────────────────────────────────────────────
+  function filterMembers() {
+    const q = (document.getElementById('searchInput')?.value || '').toLowerCase();
+    const gen = document.getElementById('generationFilter')?.value || '';
+    const sur = document.getElementById('surnameFilter')?.value || '';
+
+    let filtered = allMembers;
+    if (q) filtered = filtered.filter(m =>
+      (m.name||'').toLowerCase().includes(q) ||
+      (m.city||'').toLowerCase().includes(q) ||
+      (m.occupation||'').toLowerCase().includes(q)
+    );
+    if (gen) filtered = filtered.filter(m => m.generation === gen);
+    if (sur) filtered = filtered.filter(m => (m.name||'').endsWith(sur));
+
+    FamilyTreeRenderer.render(filtered);
   }
 
-  function showRelationshipPath() {
-    const start = el.personA.value;
-    const end = el.personB.value;
-    if (!start || !end || start === end) {
-      el.result.textContent = "Choose two different family members.";
-      return;
-    }
-    const path = shortestPath(start, end);
-    if (!path.length) {
-      el.result.textContent = "No direct relationship path was found in the current sheet.";
-      return;
-    }
-    state.selectedPath = path;
-    el.result.textContent = path.map((id) => state.byId.get(id)?.name || id).join(" -> ");
-    renderTree(state.members);
+  // ── RELATIONSHIP FINDER ──────────────────────────────────────────────
+  function findRelationship() {
+    const aId = document.getElementById('personA')?.value;
+    const bId = document.getElementById('personB')?.value;
+    const result = document.getElementById('relationshipResult');
+    if (!aId || !bId || !result) return;
+    if (aId === bId) { result.textContent = 'Same person.'; return; }
+
+    const path = bfsPath(aId, bId);
+    if (!path) { result.textContent = 'No relationship path found.'; return; }
+
+    const byId = {};
+    allMembers.forEach(m => byId[m.id] = m);
+    const names = path.map(id => byId[id]?.name || id).join(' → ');
+    result.textContent = `Path (${path.length - 1} steps): ${names}`;
+    FamilyTreeRenderer.highlightPath(path);
   }
 
-  function shortestPath(start, end) {
-    const graph = new Map();
-    state.allMembers.forEach((m) => {
-      addEdge(graph, m.id, m.fatherId);
-      addEdge(graph, m.id, m.motherId);
-      addEdge(graph, m.id, m.spouseId);
+  function bfsPath(startId, endId) {
+    // Build adjacency: parent-child + spouse
+    const adj = {};
+    allMembers.forEach(m => {
+      adj[m.id] = adj[m.id] || new Set();
+      if (m.fatherId) {
+        adj[m.id].add(m.fatherId);
+        adj[m.fatherId] = adj[m.fatherId] || new Set();
+        adj[m.fatherId].add(m.id);
+      }
+      if (m.motherId) {
+        adj[m.id].add(m.motherId);
+        adj[m.motherId] = adj[m.motherId] || new Set();
+        adj[m.motherId].add(m.id);
+      }
+      if (m.spouseId) {
+        adj[m.id].add(m.spouseId);
+        adj[m.spouseId] = adj[m.spouseId] || new Set();
+        adj[m.spouseId].add(m.id);
+      }
     });
-    const queue = [[start]];
-    const seen = new Set([start]);
+    const prev = { [startId]: null };
+    const queue = [startId];
     while (queue.length) {
-      const path = queue.shift();
-      const last = path[path.length - 1];
-      if (last === end) return path;
-      (graph.get(last) || []).forEach((next) => {
-        if (!seen.has(next)) {
-          seen.add(next);
-          queue.push([...path, next]);
-        }
-      });
+      const cur = queue.shift();
+      if (cur === endId) {
+        const path = [];
+        let c = endId;
+        while (c !== null) { path.unshift(c); c = prev[c]; }
+        return path;
+      }
+      for (const nb of (adj[cur] || [])) {
+        if (!(nb in prev)) { prev[nb] = cur; queue.push(nb); }
+      }
     }
-    return [];
+    return null;
   }
 
-  function addEdge(graph, a, b) {
-    if (!a || !b) return;
-    if (!graph.has(a)) graph.set(a, new Set());
-    if (!graph.has(b)) graph.set(b, new Set());
-    graph.get(a).add(b);
-    graph.get(b).add(a);
-  }
-
-  async function exportImage(type) {
-    if (!window.html2canvas) return alert("Export tools are still loading. Please try again in a moment.");
-    const canvas = await html2canvas(document.querySelector(".workspace"), { backgroundColor: null, scale: 2 });
-    if (type === "png") {
-      download(canvas.toDataURL("image/png"), "family-tree.png");
-      return;
-    }
-    const pdf = new window.jspdf.jsPDF({ orientation: "landscape", unit: "px", format: [canvas.width, canvas.height] });
-    pdf.addImage(canvas.toDataURL("image/png"), "PNG", 0, 0, canvas.width, canvas.height);
-    pdf.save("family-tree.pdf");
-  }
-
-  function download(dataUrl, name) {
-    const link = document.createElement("a");
-    link.href = dataUrl;
-    link.download = name;
-    link.click();
-  }
-
-  function relationshipLabel(member) {
-    if (!member.fatherId && !member.motherId) return member.spouseId ? "Root couple" : "Family member";
-    return "Child";
-  }
-
-  function spouseName(member) {
-    return state.byId.get(member.spouseId)?.name || "";
-  }
-
-  function getSurname(name) {
-    return String(name || "").trim().split(/\s+/).pop() || "";
-  }
-
-  function parseDate(value) {
-    const parsed = Date.parse(value);
-    return Number.isNaN(parsed) ? 0 : parsed;
-  }
-
-  function naturalSort(a, b) {
-    return String(a).localeCompare(String(b), undefined, { numeric: true });
-  }
-
-  function readCache(allowExpired) {
-    try {
-      const cached = JSON.parse(localStorage.getItem(cacheKey) || "null");
-      if (!cached) return null;
-      const fresh = Date.now() - cached.savedAt < cacheMinutes * 60 * 1000;
-      return fresh || allowExpired ? cached : null;
-    } catch {
-      return null;
-    }
-  }
-
-  function writeCache(data) {
-    localStorage.setItem(cacheKey, JSON.stringify({ savedAt: Date.now(), data }));
-  }
-
-  function showLoading() {
-    el.loading.hidden = false;
-    el.error.hidden = true;
-  }
-
-  function hideStates() {
-    el.loading.hidden = true;
-    el.error.hidden = true;
-  }
-
-  function showError(message) {
-    el.loading.hidden = true;
-    el.error.hidden = false;
-    el.errorMessage.textContent = message;
-    el.syncStatus.textContent = "Family data is unavailable.";
-  }
-
-  function openAddModal() {
-    document.getElementById("fName").value = "";
-    document.getElementById("fGender").value = "";
-    document.getElementById("fFather").innerHTML = '<option value="">Select father</option>';
-    document.getElementById("fMother").innerHTML = '<option value="">Select mother</option>';
-    document.getElementById("fSpouse").innerHTML = '<option value="">Select spouse</option>';
-    document.getElementById("fGeneration").value = "";
-    document.getElementById("fDob").value = "";
-    document.getElementById("fMarriage").value = "";
-    document.getElementById("fCity").value = "";
-    document.getElementById("fOccupation").value = "";
-    document.getElementById("fEducation").value = "";
-    document.getElementById("fPhoto").value = "";
-    document.getElementById("fEmail").value = "";
-    document.getElementById("fPhone").value = "";
-    document.getElementById("fBio").value = "";
-    document.getElementById("formHint").textContent = "Data is saved directly to your Google Sheet.";
-    document.getElementById("formHint").style.color = "";
-
-    const people = state.allMembers.slice().sort((a, b) => a.name.localeCompare(b.name));
-    const males = people.filter((m) => m.gender === "Male");
-    const females = people.filter((m) => m.gender === "Female");
-    const anyOpts = (items) => items.map((m) => `<option value="${escapeHtml(m.id)}">${escapeHtml(m.name)}</option>`).join("");
-
-    document.getElementById("fFather").innerHTML = '<option value="">Select father</option>' + anyOpts(males);
-    document.getElementById("fMother").innerHTML = '<option value="">Select mother</option>' + anyOpts(females);
-    document.getElementById("fSpouse").innerHTML = '<option value="">Select spouse</option>' + anyOpts(people);
-
-    const maxId = state.allMembers.reduce((max, m) => {
-      const n = parseInt(m.id.replace(/\D/g, ""), 10);
-      return n > max ? n : max;
-    }, 0);
-    document.getElementById("fGeneration").placeholder = "Auto (suggested Gen " + (state.allMembers.length ? guessNextGeneration() : "1") + ")";
-
-    el.addModal.setAttribute("aria-hidden", "false");
-    document.body.style.overflow = "hidden";
-    setTimeout(() => document.getElementById("fName").focus(), 240);
-  }
-
-  function guessNextGeneration() {
-    const gens = [...new Set(state.allMembers.map((m) => Number(m.generation)).filter((g) => g))];
-    if (!gens.length) return 1;
-    return Math.max(...gens);
-  }
-
-  function closeAddModal() {
-    el.addModal.setAttribute("aria-hidden", "true");
-    document.body.style.overflow = "";
-  }
-
-  function isAuth() {
-    return sessionStorage.getItem(authKey) === "1";
-  }
-
-  function gateAdd() {
-    if (isAuth()) { openAddModal(); return; }
-    document.getElementById("loginUser").value = "";
-    document.getElementById("loginPass").value = "";
-    document.getElementById("loginError").textContent = "";
-    el.loginModal.setAttribute("aria-hidden", "false");
-    setTimeout(() => document.getElementById("loginUser").focus(), 240);
-  }
-
-  function closeLoginModal() {
-    el.loginModal.setAttribute("aria-hidden", "true");
-  }
-
-  function handleLogin(e) {
-    e.preventDefault();
-    const user = document.getElementById("loginUser").value.trim();
-    const pass = document.getElementById("loginPass").value;
-    if (user === AUTH_USER && pass === AUTH_PASS) {
-      sessionStorage.setItem(authKey, "1");
-      closeLoginModal();
-      updateAdminUI();
-      openAddModal();
+  // ── ADMIN AUTH ───────────────────────────────────────────────────────
+  function attemptLogin() {
+    const pass = document.getElementById('loginPass')?.value;
+    const err = document.getElementById('loginError');
+    if (pass === (C.ADMIN_PASSWORD || 'family2024')) {
+      isAdmin = true;
+      sessionStorage.setItem('ft_admin', '1');
+      setAdminUI(true);
+      closeModal('loginModal');
+      toast('Admin mode enabled', 'success');
     } else {
-      document.getElementById("loginError").textContent = "Invalid credentials.";
-    }
-  }
-
-  function updateAdminUI() {
-    const btn = document.getElementById("addMemberBtn");
-    const lbtn = document.getElementById("logoutBtn");
-    if (isAuth()) {
-      btn.textContent = "+ Add";
-      btn.title = "Add family member";
-      lbtn.hidden = false;
-    } else {
-      lbtn.hidden = true;
+      if (err) err.textContent = 'Incorrect password.';
     }
   }
 
   function logout() {
-    sessionStorage.removeItem(authKey);
-    const btn = document.getElementById("addMemberBtn");
-    btn.textContent = "+ Add";
-    btn.title = "Login to add members";
-    document.getElementById("logoutBtn").hidden = true;
+    isAdmin = false;
+    sessionStorage.removeItem('ft_admin');
+    setAdminUI(false);
+    toast('Logged out');
   }
 
-  async function submitMember(e) {
-    e.preventDefault();
-    const name = document.getElementById("fName").value.trim();
-    if (!name) { showToast("Name is required.", "error"); return; }
+  function setAdminUI(admin) {
+    const addBtn = document.getElementById('addMemberBtn');
+    const logoutBtn = document.getElementById('logoutBtn');
+    const loginBtn = document.getElementById('loginBtn');
+    const fab = document.getElementById('fabAdd');
+    const badge = document.getElementById('adminBadge');
+    if (addBtn) addBtn.hidden = !admin;
+    if (fab) fab.hidden = !admin;
+    if (logoutBtn) logoutBtn.hidden = !admin;
+    if (loginBtn) loginBtn.hidden = admin;
+    if (badge) badge.hidden = !admin;
+  }
 
-    const maxId = state.allMembers.reduce((max, m) => {
-      const n = parseInt(m.id.replace(/\D/g, ""), 10);
-      return n > max ? n : max;
-    }, 0);
-    const newId = "P" + (maxId + 1);
-
-    const data = {
-      ID: newId,
-      Name: name,
-      Gender: document.getElementById("fGender").value,
-      FatherID: document.getElementById("fFather").value,
-      MotherID: document.getElementById("fMother").value,
-      SpouseID: document.getElementById("fSpouse").value,
-      Generation: document.getElementById("fGeneration").value || "",
-      DOB: document.getElementById("fDob").value,
-      MarriageDate: document.getElementById("fMarriage").value,
-      City: document.getElementById("fCity").value,
-      Occupation: document.getElementById("fOccupation").value,
-      Education: document.getElementById("fEducation").value,
-      PhotoURL: document.getElementById("fPhoto").value,
-      Email: document.getElementById("fEmail").value,
-      Phone: document.getElementById("fPhone").value,
-      Bio: document.getElementById("fBio").value
-    };
-
-    document.getElementById("submitForm").disabled = true;
-    document.getElementById("submitForm").textContent = "Saving...";
-
-    try {
-      if (config.writeApiUrl) {
-        data._user = AUTH_USER;
-        data._pass = AUTH_PASS;
-        const resp = await fetch(config.writeApiUrl, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(data)
-        });
-        if (!resp.ok) throw new Error("Server returned " + resp.status);
-        const result = await resp.json();
-        if (!result.success) throw new Error(result.error || "Write failed");
-      } else {
-        const sheetUrl = config.googleSheetUrl || "";
-        const match = sheetUrl.match(/\/d\/([^/]+)/);
-        if (match) {
-          const editUrl = "https://docs.google.com/spreadsheets/d/" + match[1] + "/edit";
-          document.getElementById("formHint").innerHTML =
-            'Add <b>' + escapeHtml(name) + '</b> manually in the <a href="' + editUrl + '" target="_blank" style="color:var(--accent)">Google Sheet</a>, then refresh the page.';
-          document.getElementById("formHint").style.color = "var(--muted)";
-          showToast("No write API — open sheet to add manually", "");
-          document.getElementById("submitForm").disabled = false;
-          document.getElementById("submitForm").textContent = "Save Member";
-          return;
-        }
-        throw new Error("Add a writeApiUrl in config.js or use a Google Sheet URL");
-      }
-
-      showToast(name + " added! Refreshing tree...", "success");
-      closeAddModal();
-      await loadFamilyData(true);
-    } catch (err) {
-      showToast("Error: " + err.message, "error");
+  // Check session on load
+  function checkSession() {
+    if (sessionStorage.getItem('ft_admin') === '1') {
+      isAdmin = true;
+      setAdminUI(true);
     }
-
-    document.getElementById("submitForm").disabled = false;
-    document.getElementById("submitForm").textContent = "Save Member";
   }
 
-  function showToast(message, type) {
-    const toast = document.createElement("div");
-    toast.className = "toast" + (type === "error" ? " error" : type === "success" ? " success" : "");
-    toast.textContent = message;
-    el.toast.appendChild(toast);
-    setTimeout(() => {
-      toast.style.opacity = "0";
-      toast.style.transition = "opacity 300ms";
-      setTimeout(() => toast.remove(), 300);
-    }, 3000);
+  // ── ADD / EDIT MODAL ─────────────────────────────────────────────────
+  // NOTE: Since this is a static GitHub Pages site, "saving" generates
+  // a CSV row the admin can paste into their Google Sheet.
+  function openAddModal() {
+    if (!isAdmin) { openModal('loginModal'); return; }
+    document.getElementById('modalTitle').textContent = 'Add Family Member';
+    document.getElementById('addForm').reset();
+    document.getElementById('fId').value = 'NEW_' + Date.now();
+    document.getElementById('formHint').textContent = 'Copy the generated CSV row and paste it into your Google Sheet.';
+    openModal('addModal');
   }
 
-  function escapeHtml(value) {
-    return String(value || "").replace(/[&<>"']/g, (char) => ({
-      "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
-    }[char]));
-  }
-
-  function debounce(fn, wait) {
-    let timer;
-    return (...args) => {
-      clearTimeout(timer);
-      timer = setTimeout(() => fn(...args), wait);
+  window.openEditModal = function(id) {
+    if (!isAdmin) return;
+    const m = allMembers.find(x => x.id === id);
+    if (!m) return;
+    document.getElementById('modalTitle').textContent = 'Edit Member';
+    // Fill form
+    const fields = {
+      fId: m.id, fName: m.name, fGender: m.gender,
+      fFather: m.fatherId, fMother: m.motherId, fSpouse: m.spouseId,
+      fPhoto: m.photoUrl, fDob: m.dob, fDod: m.dod,
+      fMarriage: m.marriageDate, fCity: m.city,
+      fOccupation: m.occupation, fEducation: m.education,
+      fEmail: m.email, fPhone: m.phone, fGeneration: m.generation, fBio: m.bio
     };
+    Object.entries(fields).forEach(([id, val]) => {
+      const el = document.getElementById(id);
+      if (el) el.value = val || '';
+    });
+    document.getElementById('formHint').textContent = 'Update this row in your Google Sheet with the generated CSV.';
+    openModal('addModal');
+  };
+
+  function submitForm(e) {
+    e.preventDefault();
+    const get = id => (document.getElementById(id)?.value || '').trim();
+    if (!get('fName')) { toast('Name is required', 'error'); return; }
+    const row = [
+      get('fId'), get('fName'), get('fGender'),
+      get('fFather'), get('fMother'), get('fSpouse'),
+      get('fPhoto'), get('fDob'), get('fDod'),
+      get('fMarriage'), get('fOccupation'), get('fEducation'),
+      get('fCity'), get('fBio'), get('fEmail'), get('fPhone'), get('fGeneration')
+    ].map(v => v.includes(',') || v.includes('"') ? `"${v.replace(/"/g,'""')}"` : v);
+
+    const csvRow = row.join(',');
+    const output = document.getElementById('csvOutput');
+    if (output) {
+      output.value = csvRow;
+      output.style.display = 'block';
+      output.select();
+      document.execCommand('copy');
+      toast('CSV row copied to clipboard! Paste into your Google Sheet.', 'success');
+    }
   }
+
+  window.confirmDelete = function(id) {
+    const m = allMembers.find(x => x.id === id);
+    if (!m) return;
+    if (confirm(`Delete "${m.name}"? You'll also need to remove row ID="${m.id}" from your Google Sheet.`)) {
+      toast(`To delete: remove row with ID="${m.id}" from your Google Sheet.`, 'success');
+      closeDrawer();
+    }
+  };
+
+  // ── GLOBAL FUNCTIONS (called from HTML) ──────────────────────────────
+  window.openProfile    = openProfile;
+  window.focusTreeNode  = id => { FamilyTreeRenderer.focusNode(id); closeDrawer(); };
+
+  window.openLightbox = function(url, name) {
+    const lb = document.getElementById('lightbox');
+    const img = document.getElementById('lightboxImg');
+    if (!lb || !img) return;
+    img.src = url; img.alt = name;
+    lb.classList.add('open');
+  };
+  window.closeLightbox = function() {
+    document.getElementById('lightbox')?.classList.remove('open');
+  };
+
+  // ── MODAL HELPERS ────────────────────────────────────────────────────
+  function openModal(id)  { document.getElementById(id)?.classList.add('open'); }
+  function closeModal(id) { document.getElementById(id)?.classList.remove('open'); }
+
+  // ── TOAST ────────────────────────────────────────────────────────────
+  window.toast = function(msg, type = '') {
+    const c = document.getElementById('toastContainer');
+    if (!c) return;
+    const t = document.createElement('div');
+    t.className = `toast ${type}`;
+    t.textContent = msg;
+    c.appendChild(t);
+    setTimeout(() => t.remove(), 4000);
+  };
+
+  // ── BIND UI ──────────────────────────────────────────────────────────
+  function bindStaticUI() {
+    checkSession();
+
+    // Topbar
+    bind('loginBtn', 'click', () => openModal('loginModal'));
+    bind('logoutBtn', 'click', logout);
+    bind('addMemberBtn', 'click', openAddModal);
+    bind('fabAdd', 'click', openAddModal);
+    bind('themeToggle', 'click', toggleTheme);
+    bind('printButton', 'click', () => window.print());
+    bind('pngButton', 'click', exportPng);
+
+    // Search & filter
+    bind('searchInput', 'input', filterMembers);
+    bind('generationFilter', 'change', filterMembers);
+    bind('surnameFilter', 'change', filterMembers);
+    bind('expandAll', 'click', () => FamilyTreeRenderer.render(allMembers));
+    bind('collapseAll', 'click', () => {});
+
+    // Relationship finder
+    bind('findRelationship', 'click', findRelationship);
+
+    // Drawer close
+    bind('drawerScrim', 'click', closeDrawer);
+
+    // Login modal
+    bind('submitLogin', 'click', (e) => { e.preventDefault(); attemptLogin(); });
+    bind('closeLoginModal', 'click', () => closeModal('loginModal'));
+    bind('cancelLogin', 'click', () => closeModal('loginModal'));
+    bind('loginForm', 'submit', (e) => { e.preventDefault(); attemptLogin(); });
+
+    // Add modal
+    bind('closeModal', 'click', () => closeModal('addModal'));
+    bind('cancelModal', 'click', () => closeModal('addModal'));
+    bind('addForm', 'submit', submitForm);
+
+    // Lightbox
+    bind('lightboxClose', 'click', window.closeLightbox);
+    document.getElementById('lightbox')?.addEventListener('click', function(e) {
+      if (e.target === this) window.closeLightbox();
+    });
+
+    // Close modals on backdrop click
+    document.querySelectorAll('.modal').forEach(m => {
+      m.querySelector('.modal-backdrop')?.addEventListener('click', () => {
+        m.classList.remove('open');
+      });
+    });
+
+    // Reload data
+    bind('retryButton', 'click', loadData);
+    bind('reloadData', 'click', loadData);
+  }
+
+  function bind(id, event, fn) {
+    document.getElementById(id)?.addEventListener(event, fn);
+  }
+
+  // ── THEME ────────────────────────────────────────────────────────────
+  function toggleTheme() {
+    document.documentElement.classList.toggle('dark');
+    const dark = document.documentElement.classList.contains('dark');
+    localStorage.setItem('ft_theme', dark ? 'dark' : 'light');
+  }
+  // Apply saved theme
+  if (localStorage.getItem('ft_theme') === 'dark') {
+    document.documentElement.classList.add('dark');
+  }
+
+  // ── EXPORT PNG ───────────────────────────────────────────────────────
+  async function exportPng() {
+    const el = document.getElementById('treeContainer');
+    if (!el) return;
+    toast('Generating image…');
+    try {
+      const canvas = await html2canvas(el, { useCORS: true, backgroundColor: '#fff' });
+      const a = document.createElement('a');
+      a.download = 'family-tree.png';
+      a.href = canvas.toDataURL('image/png');
+      a.click();
+    } catch(e) {
+      toast('Could not export image', 'error');
+    }
+  }
+
+  // ── UTILS ────────────────────────────────────────────────────────────
+  function setText(id, val) {
+    const el = document.getElementById(id);
+    if (el) el.textContent = val;
+  }
+
+  window.escHtml = function(str) {
+    return String(str||'')
+      .replace(/&/g,'&amp;').replace(/</g,'&lt;')
+      .replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  };
+
+  function capitalize(s) { return s ? s[0].toUpperCase() + s.slice(1) : ''; }
+  function extractYear(s) { const m = String(s||'').match(/\d{4}/); return m ? m[0] : s; }
+
 })();
