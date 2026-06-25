@@ -90,71 +90,49 @@
   </div>
 </section>
 
-<!-- ═══════════════════════════════════════════════ WORKSPACE -->
-<div class="workspace">
+<!-- ═══════════════════════════════════════════════ TREE (full width, first thing user sees) -->
+<section class="tree-fullwidth" aria-label="Family tree">
+  <div class="tree-toolbar">
+    <span class="tree-toolbar-title">Family Tree</span>
+    <small class="tree-hint">Scroll to zoom &middot; drag to pan &middot; click to view</small>
+  </div>
 
-  <!-- Sidebar -->
-  <aside class="sidebar" aria-label="Controls">
-    <div class="sidebar-section">
-      <div class="sidebar-title">Search</div>
-      <div class="field">
-        <input id="searchInput" type="search" placeholder="Search by name, city...">
-      </div>
-    </div>
+  <div id="loadingState" class="loading-state">
+    <span class="loader"></span>
+    <strong>Loading family records</strong>
+    <p>Fetching live data from Google Sheets.</p>
+  </div>
+  <div id="errorState" class="error-state" hidden>
+    <strong>Could not load family data</strong>
+    <p id="errorMessage">Check the Google Sheet URL in config.js and make sure it is published to the web.</p>
+    <button class="btn btn-accent" id="retryButton">Try again</button>
+  </div>
+  <div id="treeContainer" style="display:none"></div>
+</section>
 
-    <div class="sidebar-section">
-      <div class="sidebar-title">Filter</div>
-      <div class="field">
-        <select id="generationFilter"><option value="">All generations</option></select>
-      </div>
-      <div class="field">
-        <select id="surnameFilter"><option value="">All surnames</option></select>
-      </div>
-      <div class="btn-row">
-        <button class="btn btn-outline btn-sm" id="expandAll">Expand all</button>
-        <button class="btn btn-ghost btn-sm" id="collapseAll">Reset</button>
-      </div>
+<!-- ═══════════════════════════════════════════════ CONTROLS -->
+<div class="controls-bar">
+  <div class="controls-inner">
+    <div class="control-group">
+      <input id="searchInput" type="search" class="control-input" placeholder="Search by name...">
     </div>
-
-    <div class="sidebar-section">
-      <div class="sidebar-title">Relationship Finder</div>
-      <div class="relationship-card">
-        <div class="field">
-          <label for="personA">From</label>
-          <select id="personA"><option value="">Select member...</option></select>
-        </div>
-        <div class="field">
-          <label for="personB">To</label>
-          <select id="personB"><option value="">Select member...</option></select>
-        </div>
-        <button class="btn btn-accent btn-sm" id="findRelationship" style="width:100%;justify-content:center">
-          Find path
-        </button>
-        <p id="relationshipResult"></p>
-      </div>
+    <div class="control-group">
+      <select id="generationFilter" class="control-select"><option value="">All generations</option></select>
     </div>
-  </aside>
-
-  <!-- Tree panel -->
-  <section class="tree-panel" aria-label="Family tree">
-    <div class="tree-toolbar">
-      <span class="tree-toolbar-title">Family Tree</span>
-      <small class="tree-hint">Scroll to zoom &middot; drag to pan &middot; click to view</small>
+    <div class="control-group">
+      <select id="surnameFilter" class="control-select"><option value="">All surnames</option></select>
     </div>
-
-    <div id="loadingState" class="loading-state">
-      <span class="loader"></span>
-      <strong>Loading family records</strong>
-      <p>Fetching live data from Google Sheets.</p>
+    <div class="control-group">
+      <button class="btn btn-outline btn-sm" id="expandAll">Expand all</button>
+      <button class="btn btn-ghost btn-sm" id="collapseAll">Reset</button>
     </div>
-    <div id="errorState" class="error-state" hidden>
-      <strong>Could not load family data</strong>
-      <p id="errorMessage">Check the Google Sheet URL in config.js and make sure it is published to the web.</p>
-      <button class="btn btn-accent" id="retryButton">Try again</button>
+    <div class="control-group relationship-group">
+      <select id="personA" class="control-select"><option value="">From...</option></select>
+      <select id="personB" class="control-select"><option value="">To...</option></select>
+      <button class="btn btn-accent btn-sm" id="findRelationship">Find path</button>
+      <span id="relationshipResult" class="rel-result"></span>
     </div>
-    <div id="treeContainer" style="display:none"></div>
-  </section>
-
+  </div>
 </div>
 
 <!-- ═══════════════════════════════════════════════ TIMELINE -->

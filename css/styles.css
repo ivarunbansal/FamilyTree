@@ -122,7 +122,7 @@ body {
 /* ── HERO ── */
 .hero {
   background: linear-gradient(135deg, #0f172a 0%, #1e293b 50%, #334155 100%);
-  padding: 48px 32px 40px;
+  padding: 32px 24px 28px;
   position: relative;
   overflow: hidden;
 }
@@ -181,31 +181,57 @@ body {
 }
 @keyframes pulse-dot { 0%,100%{opacity:1} 50%{opacity:.4} }
 
-/* ── WORKSPACE ── */
-.workspace {
-  display: flex;
-  max-width: 1400px; margin: 24px auto; padding: 0 20px;
-  gap: 20px; align-items: flex-start;
-}
-
-/* ── SIDEBAR ── */
-.sidebar {
-  width: 260px; flex-shrink: 0;
+/* ── TREE FULL WIDTH ── */
+.tree-fullwidth {
   background: var(--surface);
-  border: 1px solid var(--bg-3);
-  border-radius: var(--radius-lg);
-  padding: 16px;
-  position: sticky; top: 72px;
+  border-bottom: 1px solid var(--bg-3);
+  position: relative;
+}
+.tree-fullwidth #treeContainer {
+  width: 100%; min-height: 70vh;
+  overflow: hidden;
+  cursor: grab;
+  background: #fefefe;
+}
+.tree-fullwidth #treeContainer:active { cursor: grabbing; }
+
+/* ── CONTROLS BAR ── */
+.controls-bar {
+  background: var(--surface);
+  border-bottom: 1px solid var(--bg-3);
+  padding: 12px 20px;
   box-shadow: var(--shadow);
 }
-.sidebar-section { margin-bottom: 16px; }
-.sidebar-section:last-child { margin-bottom: 0; }
-.sidebar-title {
-  font-size: 11px; font-weight: 600; letter-spacing: .08em;
-  text-transform: uppercase; color: var(--text-3);
-  margin-bottom: 10px; padding-bottom: 8px;
-  border-bottom: 1px solid var(--bg-2);
+.controls-inner {
+  max-width: 1400px; margin: 0 auto;
+  display: flex; align-items: center; gap: 10px;
+  flex-wrap: wrap;
 }
+.control-group {
+  display: flex; align-items: center; gap: 6px;
+}
+.control-input, .control-select {
+  padding: 7px 12px;
+  border: 1px solid var(--bg-3);
+  border-radius: 8px;
+  font-family: var(--ff-body); font-size: 13px;
+  color: var(--text);
+  background: var(--bg);
+  outline: none;
+  transition: var(--trans);
+}
+.control-input:focus, .control-select:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(99,102,241,.1);
+}
+.control-input { width: 180px; }
+.control-select { min-width: 130px; }
+.relationship-group { border-left: 1px solid var(--bg-3); padding-left: 10px; margin-left: 4px; }
+.rel-result { font-size: 12px; color: var(--text-2); }
+
+/* ── SIDEBAR (legacy compat) ── */
+.sidebar { display: none; }
+.workspace { display: none; }
 
 .field { display: flex; flex-direction: column; gap: 4px; margin-bottom: 8px; }
 .field label { font-size: 12px; font-weight: 500; color: var(--text-2); }
@@ -244,19 +270,10 @@ body {
   min-height: 16px;
 }
 
-/* ── TREE PANEL ── */
-.tree-panel {
-  flex: 1; min-width: 0;
-  background: var(--surface);
-  border: 1px solid var(--bg-3);
-  border-radius: var(--radius-lg);
-  box-shadow: var(--shadow);
-  overflow: hidden;
-  position: relative;
-}
+/* ── TREE TOOLBAR ── */
 .tree-toolbar {
   display: flex; align-items: center; gap: 8px;
-  padding: 10px 16px;
+  padding: 10px 20px;
   border-bottom: 1px solid var(--bg-2);
   background: var(--bg);
   flex-wrap: wrap;
@@ -269,13 +286,7 @@ body {
 .tree-hint {
   color: var(--text-3); font-size: 11px;
 }
-#treeContainer {
-  width: 100%; min-height: 600px;
-  overflow: hidden;
-  cursor: grab;
-  background: #fefefe;
-}
-#treeContainer:active { cursor: grabbing; }
+.tree-panel { display: none; }
 
 /* ── D3 TREE NODES ── */
 .node { cursor: pointer; }
@@ -696,10 +707,11 @@ body {
 
 /* ── RESPONSIVE ── */
 @media (max-width: 900px) {
-  .workspace { flex-direction: column; }
-  .sidebar { width: 100%; position: static; }
   .hero { padding: 36px 20px 32px; }
   .form-grid { grid-template-columns: 1fr; }
+  .controls-inner { gap: 8px; }
+  .control-input { width: 140px; }
+  .relationship-group { border-left: none; padding-left: 0; margin-left: 0; }
 }
 @media (max-width: 600px) {
   .topbar { padding: 0 12px; height: 50px; }
@@ -717,11 +729,13 @@ body {
   .hero-stat .stat-num, .hero-stat .num { font-size: 24px; }
   .hero-badge { font-size: 11px; padding: 6px 12px; margin-top: 14px; }
 
-  .workspace { padding: 0 12px; margin: 12px auto; gap: 12px; }
-  .sidebar { padding: 12px; border-radius: 12px; }
-
-  .tree-panel { border-radius: 12px; }
-  #treeContainer { min-height: 400px; }
+  .tree-fullwidth #treeContainer { min-height: 60vh; }
+  .controls-bar { padding: 10px 12px; }
+  .controls-inner { gap: 6px; }
+  .control-input { width: 100%; }
+  .control-select { min-width: 0; flex: 1; }
+  .control-group { flex: 1; min-width: 120px; }
+  .relationship-group { width: 100%; flex-wrap: wrap; }
 
   .drawer { width: 100vw; }
   .drawer-header { padding: 14px; }

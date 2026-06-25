@@ -9,8 +9,8 @@ const FamilyTreeRenderer = (() => {
   let currentData = null;
 
   const CARD_W = 180, CARD_H = 64, PHOTO_R = 20;
-  const SPOUSE_GAP = 8;
-  const H_SPACING = 220, V_SPACING = 120;
+  const SPOUSE_GAP = 10;
+  const H_SPACING = 280, V_SPACING = 140;
 
   function driveUrl(url) {
     if (!url) return null;
@@ -23,7 +23,7 @@ const FamilyTreeRenderer = (() => {
     onNodeClick = clickCallback;
     const container = document.getElementById(containerId);
     container.innerHTML = '';
-    const H = 700;
+    const H = Math.max(window.innerHeight * 0.7, 500);
 
     svg = d3.select(`#${containerId}`)
       .append('svg')
@@ -96,7 +96,7 @@ const FamilyTreeRenderer = (() => {
 
       const treeLayout = d3.tree()
         .nodeSize([H_SPACING, V_SPACING])
-        .separation((a, b) => a.parent === b.parent ? 1.2 : 1.6);
+        .separation((a, b) => a.parent === b.parent ? 1.5 : 2.0);
 
       treeLayout(hierarchy);
 
