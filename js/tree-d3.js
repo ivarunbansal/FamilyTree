@@ -1,11 +1,16 @@
 /* =====================================================================
    tree-d3.js — Family tree rendering with D3 v7
+   Card-based layout with orthogonal connectors
    ===================================================================== */
 
 const FamilyTreeRenderer = (() => {
   let svg, g, zoom, members = [], onNodeClick = null;
   let collapsedNodes = new Set();
-  let currentData = null, currentById = null, currentRootId = null;
+  let currentData = null;
+
+  const CARD_W = 180, CARD_H = 64, PHOTO_R = 20;
+  const SPOUSE_GAP = 8;
+  const H_SPACING = 220, V_SPACING = 120;
 
   function driveUrl(url) {
     if (!url) return null;
@@ -18,18 +23,18 @@ const FamilyTreeRenderer = (() => {
     onNodeClick = clickCallback;
     const container = document.getElementById(containerId);
     container.innerHTML = '';
-    const H = 600;
+    const H = 700;
 
     svg = d3.select(`#${containerId}`)
       .append('svg')
       .attr('width', '100%')
       .attr('height', H)
-      .style('font-family', 'Inter, sans-serif');
+      .style('font-family', 'Inter, system-ui, sans-serif');
 
     svg.append('defs');
 
     zoom = d3.zoom()
-      .scaleExtent([0.2, 3])
+      .scaleExtent([0.15, 2.5])
       .on('zoom', (e) => g.attr('transform', e.transform));
 
     svg.call(zoom);
@@ -47,9 +52,7 @@ const FamilyTreeRenderer = (() => {
 
     const byId = {};
     data.forEach(d => byId[d.id] = d);
-    currentById = byId;
 
-    // Build spouse lookup (bidirectional)
     const spouseOf = {};
     data.forEach(d => {
       if (d.spouseId) {
@@ -58,8 +61,6 @@ const FamilyTreeRenderer = (() => {
       }
     });
 
-    // Married-in members: no fatherId/motherId, have a spouseId set,
-    // and no children through the father line (children use fatherId for tree structure).
     const hasFatherChildren = new Set();
     data.forEach(d => { if (d.fatherId) hasFatherChildren.add(d.fatherId); });
 
@@ -70,7 +71,7 @@ const FamilyTreeRenderer = (() => {
       }
     });
 
-    // Find root — pick the person in the lowest generation who isn't spouse-only
+    // Find root
     let rootId = null;
     const primaryMembers = data.filter(d => !spouseOnly.has(d.id));
     const withGen = primaryMembers.filter(d => d.generation != null && d.generation !== '');
@@ -81,9 +82,7 @@ const FamilyTreeRenderer = (() => {
       const notChild = primaryMembers.filter(d => !d.fatherId && !d.motherId);
       rootId = notChild.length ? notChild[0].id : (primaryMembers[0] || data[0]).id;
     }
-    currentRootId = rootId;
 
-    // Build stratify data excluding spouse-only members
     const stratData = buildStratData(data, byId, rootId, spouseOnly);
     if (!stratData.length) return;
 
@@ -93,12 +92,11 @@ const FamilyTreeRenderer = (() => {
         .parentId(d => d.parentSid)
         (stratData);
 
-      // Apply collapse: remove children of collapsed nodes
       pruneCollapsed(hierarchy);
 
       const treeLayout = d3.tree()
-        .nodeSize([140, 160])
-        .separation((a, b) => a.parent === b.parent ? 1.3 : 1.8);
+        .nodeSize([H_SPACING, V_SPACING])
+        .separation((a, b) => a.parent === b.parent ? 1.2 : 1.6);
 
       treeLayout(hierarchy);
 
@@ -107,153 +105,208 @@ const FamilyTreeRenderer = (() => {
       const maxX = d3.max(nodes, d => d.x);
       const cx = (maxX + minX) / 2;
 
-      // Draw links — if parent has a spouse, link starts from couple midpoint
-      const SPOUSE_OFFSET = 70;
-      const coupleMidX = {};
+      // Draw orthogonal links
+      drawOrthogonalLinks(hierarchy, cx, spouseOf, spouseOnly);
+
+      // Draw spouse connectors and cards
+      drawSpouseCards(nodes, cx, byId, spouseOf, spouseOnly);
+
+      // Draw primary member cards
       nodes.forEach(nd => {
-        const id = nd.data.origId;
-        if (spouseOf[id] && spouseOnly.has(spouseOf[id])) {
-          coupleMidX[id] = nd.x + SPOUSE_OFFSET / 2;
-        }
-      });
-
-      g.selectAll('.link')
-        .data(hierarchy.links())
-        .join('path')
-        .attr('class', 'link')
-        .attr('d', d => {
-          const srcId = d.source.data.origId;
-          const srcX = (coupleMidX[srcId] != null ? coupleMidX[srcId] : d.source.x) - cx;
-          const srcY = d.source.y;
-          const tgtX = d.target.x - cx;
-          const tgtY = d.target.y;
-          const midY = (srcY + tgtY) / 2;
-          return `M${srcX},${srcY} C${srcX},${midY} ${tgtX},${midY} ${tgtX},${tgtY}`;
-        });
-
-      // Draw primary nodes
-      const nodeG = g.selectAll('.node')
-        .data(nodes)
-        .join('g')
-        .attr('class', d => {
-          const m = byId[d.data.origId];
-          if (!m) return 'node';
-          const gender = (m.gender || '').toLowerCase();
-          const dec = m.dod ? 'deceased' : '';
-          return `node ${gender} ${dec}`.trim();
-        })
-        .attr('transform', d => `translate(${d.x - cx},${d.y})`)
-        .attr('cursor', 'pointer')
-        .on('click', (e, d) => {
-          if (onNodeClick && d.data.origId) onNodeClick(d.data.origId);
-        });
-
-      const R = 32;
-
-      nodeG.append('circle').attr('r', R).attr('fill', '#fff');
-
-      nodeG.each(function(d) {
-        const m = byId[d.data.origId];
+        const m = byId[nd.data.origId];
         if (!m) return;
-        renderPhoto(d3.select(this), m, R);
+        const x = nd.x - cx;
+        const y = nd.y;
+        drawCard(m, x, y, false);
       });
 
-      nodeG.append('circle')
-        .attr('r', R)
-        .attr('fill', 'none')
-        .attr('stroke-width', 3);
+      // Draw collapse buttons
+      nodes.forEach(nd => {
+        const origId = nd.data.origId;
+        if (!hasVisibleChildren(origId, data, spouseOnly)) return;
+        const x = nd.x - cx;
+        const y = nd.y;
+        drawCollapseBtn(x, y, origId);
+      });
 
-      nodeG.append('text')
-        .attr('class', 'node-name')
-        .attr('y', R + 16)
-        .text(d => shortName(byId[d.data.origId]));
-
-      nodeG.append('text')
-        .attr('class', 'node-sub')
-        .attr('y', R + 28)
-        .text(d => {
-          const m = byId[d.data.origId];
-          if (!m) return '';
-          if (m.dob) return m.dob.toString().slice(-4);
-          if (m.occupation) return m.occupation.slice(0, 14);
-          return '';
-        });
-
-      // Draw spouse nodes beside their partners
-      drawSpousePairs(data, nodes, cx, byId, spouseOf, spouseOnly);
-
-      // Collapse/expand toggle buttons
-      addCollapseButtons(nodeG, nodes, byId, data, spouseOnly, cx, R);
-
-      // Center and auto-fit tree
+      // Auto-fit
       const svgEl = svg.node();
       const W = svgEl.clientWidth || 900;
       const H = parseFloat(svg.attr('height'));
-      const treeWidth = (maxX - minX) + SPOUSE_OFFSET + 100;
-      const treeHeight = (d3.max(nodes, d => d.y) || 0) + 120;
+      const treeWidth = (maxX - minX) + CARD_W * 2 + 200;
+      const treeHeight = (d3.max(nodes, d => d.y) || 0) + CARD_H + 120;
       const scaleX = W / Math.max(treeWidth, 1);
       const scaleY = H / Math.max(treeHeight, 1);
-      const autoScale = Math.max(Math.min(scaleX, scaleY, 1), 0.35);
-      svg.call(zoom.transform, d3.zoomIdentity.translate(W / 2, 40).scale(autoScale));
+      const autoScale = Math.max(Math.min(scaleX, scaleY, 1), 0.25);
+      svg.call(zoom.transform, d3.zoomIdentity.translate(W / 2, 50).scale(autoScale));
 
     } catch (e) {
       console.warn('Tree render error:', e);
     }
   }
 
-  function shortName(m) {
-    if (!m) return '';
-    return m.name || '';
-  }
+  function drawCard(m, cx, cy, isSpouse) {
+    const gender = (m.gender || '').toLowerCase();
+    const isDec = !!m.dod;
+    const w = isSpouse ? CARD_W - 10 : CARD_W;
+    const h = CARD_H;
+    const x = cx - w / 2;
+    const y = cy - h / 2;
 
-  function renderPhoto(nd, m, R) {
-    const imgUrl = driveUrl(m.photoUrl);
-    const clipId = `clip-${m.id}`;
+    const colors = { male: '#3b82f6', female: '#ec4899', other: '#8b5cf6' };
+    const borderColor = colors[gender] || '#94a3b8';
+
+    const card = g.append('g')
+      .attr('class', `tree-card ${gender} ${isDec ? 'deceased' : ''}`)
+      .attr('cursor', 'pointer')
+      .on('click', () => { if (onNodeClick) onNodeClick(m.id); });
+
+    // Card background
+    card.append('rect')
+      .attr('x', x).attr('y', y)
+      .attr('width', w).attr('height', h)
+      .attr('rx', 6)
+      .attr('fill', '#fff')
+      .attr('stroke', '#e2e8f0')
+      .attr('stroke-width', 1)
+      .style('filter', 'drop-shadow(0 1px 3px rgba(0,0,0,.08))');
+
+    // Top accent bar
+    card.append('rect')
+      .attr('x', x).attr('y', y)
+      .attr('width', w).attr('height', 3)
+      .attr('rx', 0)
+      .attr('fill', borderColor);
+
+    // Round top corners of accent bar
+    card.append('rect')
+      .attr('x', x).attr('y', y)
+      .attr('width', w).attr('height', 6)
+      .attr('rx', 6)
+      .attr('fill', borderColor);
+    card.append('rect')
+      .attr('x', x).attr('y', y + 3)
+      .attr('width', w).attr('height', 3)
+      .attr('fill', borderColor);
+
+    // Photo
+    const photoX = x + 12;
+    const photoY = cy;
+    const clipId = `clip-card-${m.id}`;
+
     svg.select('defs').append('clipPath')
       .attr('id', clipId)
       .append('circle')
-      .attr('r', R - 3).attr('cx', 0).attr('cy', 0);
+      .attr('r', PHOTO_R).attr('cx', photoX + PHOTO_R).attr('cy', photoY);
 
+    // Photo circle background
+    card.append('circle')
+      .attr('cx', photoX + PHOTO_R).attr('cy', photoY)
+      .attr('r', PHOTO_R)
+      .attr('fill', '#f1f5f9')
+      .attr('stroke', '#e2e8f0')
+      .attr('stroke-width', 1);
+
+    const imgUrl = driveUrl(m.photoUrl);
     if (imgUrl) {
-      nd.append('image')
+      card.append('image')
         .attr('href', imgUrl)
-        .attr('x', -(R - 3)).attr('y', -(R - 3))
-        .attr('width', (R - 3) * 2).attr('height', (R - 3) * 2)
+        .attr('x', photoX).attr('y', photoY - PHOTO_R)
+        .attr('width', PHOTO_R * 2).attr('height', PHOTO_R * 2)
         .attr('clip-path', `url(#${clipId})`)
         .attr('preserveAspectRatio', 'xMidYMid slice')
         .on('error', function () {
           this.remove();
-          showInitial(nd, m, R);
+          drawInitial(card, photoX + PHOTO_R, photoY, m, PHOTO_R);
         });
     } else {
-      showInitial(nd, m, R);
+      drawInitial(card, photoX + PHOTO_R, photoY, m, PHOTO_R);
+    }
+
+    // Name text
+    const textX = photoX + PHOTO_R * 2 + 10;
+    const name = m.name || '';
+    const nameParts = name.split(' ');
+    const firstName = nameParts[0] || '';
+    const restName = nameParts.slice(1).join(' ');
+
+    card.append('text')
+      .attr('x', textX).attr('y', cy - 6)
+      .attr('font-size', '11px')
+      .attr('font-weight', '700')
+      .attr('fill', '#1e293b')
+      .attr('text-transform', 'uppercase')
+      .attr('letter-spacing', '0.5px')
+      .text(firstName.toUpperCase());
+
+    if (restName) {
+      card.append('text')
+        .attr('x', textX).attr('y', cy + 9)
+        .attr('font-size', '10px')
+        .attr('font-weight', '400')
+        .attr('font-style', 'italic')
+        .attr('fill', '#64748b')
+        .text(restName);
+    }
+
+    if (isDec) {
+      card.selectAll('rect').style('opacity', 0.7);
     }
   }
 
-  function showInitial(nd, m, R) {
+  function drawInitial(container, cx, cy, m, r) {
     const colors = { male: '#1e40af', female: '#9d174d', other: '#4c1d95', '': '#1e293b' };
     const gender = (m.gender || '').toLowerCase();
-    nd.append('circle')
-      .attr('r', R - 3)
+    container.append('circle')
+      .attr('cx', cx).attr('cy', cy)
+      .attr('r', r - 1)
       .attr('fill', colors[gender] || colors['']);
-    nd.append('text')
+    container.append('text')
+      .attr('x', cx).attr('y', cy)
       .attr('text-anchor', 'middle')
       .attr('dominant-baseline', 'central')
-      .attr('font-size', '18px')
+      .attr('font-size', '14px')
       .attr('font-weight', '600')
-      .attr('font-family', 'Playfair Display, serif')
-      .attr('fill', '#e2d9cc')
-      .text(() => (m.name || '?')[0].toUpperCase());
+      .attr('fill', '#e2e8f0')
+      .text((m.name || '?')[0].toUpperCase());
   }
 
-  function drawSpousePairs(data, nodes, cx, byId, spouseOf, spouseOnly) {
+  function drawOrthogonalLinks(hierarchy, cx, spouseOf, spouseOnly) {
+    const COUPLE_OFFSET = (CARD_W + SPOUSE_GAP) / 2;
+
+    hierarchy.links().forEach(link => {
+      const sx = link.source.x - cx;
+      const sy = link.source.y + CARD_H / 2;
+      const tx = link.target.x - cx;
+      const ty = link.target.y - CARD_H / 2;
+
+      // If source has a spouse, start from midpoint of couple
+      const srcId = link.source.data.origId;
+      let startX = sx;
+      if (spouseOf[srcId] && spouseOnly.has(spouseOf[srcId])) {
+        startX = sx + COUPLE_OFFSET / 2;
+      }
+
+      const midY = sy + (ty - sy) * 0.4;
+
+      const path = `M${startX},${sy} L${startX},${midY} L${tx},${midY} L${tx},${ty}`;
+
+      g.append('path')
+        .attr('class', 'tree-link')
+        .attr('d', path)
+        .attr('fill', 'none')
+        .attr('stroke', '#cbd5e1')
+        .attr('stroke-width', 1.5);
+    });
+  }
+
+  function drawSpouseCards(nodes, cx, byId, spouseOf, spouseOnly) {
     const drawn = new Set();
-    const OFFSET = 70;
 
     nodes.forEach(nd => {
       const id = nd.data.origId;
       const sid = spouseOf[id];
-      if (!sid) return;
+      if (!sid || !spouseOnly.has(sid)) return;
       const key = [id, sid].sort().join('_');
       if (drawn.has(key)) return;
       drawn.add(key);
@@ -263,34 +316,23 @@ const FamilyTreeRenderer = (() => {
 
       const px = nd.x - cx;
       const py = nd.y;
-      const sx = px + OFFSET;
-      const sy = py;
 
-      // Spouse connector line
-      g.insert('line', 'g')
-        .attr('class', 'spouse-link')
-        .attr('x1', px).attr('y1', py)
-        .attr('x2', sx).attr('y2', sy);
+      // Position spouse card to the left of the primary
+      const spouseX = px - CARD_W / 2 - SPOUSE_GAP - CARD_W / 2 + 5;
 
-      // Render spouse node
-      const R = 28;
-      const gender = (spouse.gender || '').toLowerCase();
-      const dec = spouse.dod ? 'deceased' : '';
-      const spG = g.append('g')
-        .attr('class', `node spouse-node ${gender} ${dec}`.trim())
-        .attr('transform', `translate(${sx},${sy})`)
-        .attr('cursor', 'pointer')
-        .on('click', () => { if (onNodeClick) onNodeClick(sid); });
+      // Horizontal connector between cards
+      const lineY = py;
+      const lineX1 = px - CARD_W / 2;
+      const lineX2 = spouseX + CARD_W / 2 - 5;
 
-      spG.append('circle').attr('r', R).attr('fill', '#fff');
-      renderPhoto(spG, spouse, R);
-      spG.append('circle').attr('r', R).attr('fill', 'none').attr('stroke-width', 2.5);
+      g.append('line')
+        .attr('class', 'spouse-connector')
+        .attr('x1', lineX2).attr('y1', lineY)
+        .attr('x2', lineX1).attr('y2', lineY)
+        .attr('stroke', '#cbd5e1')
+        .attr('stroke-width', 1.5);
 
-      spG.append('text')
-        .attr('class', 'node-name')
-        .attr('y', R + 14)
-        .attr('font-size', '11px')
-        .text(shortName(spouse));
+      drawCard(spouse, spouseX, py, true);
     });
   }
 
@@ -301,47 +343,37 @@ const FamilyTreeRenderer = (() => {
     );
   }
 
-  function addCollapseButtons(nodeG, nodes, byId, data, spouseOnly, cx, R) {
-    nodeG.each(function (d) {
-      const origId = d.data.origId;
-      if (!hasVisibleChildren(origId, data, spouseOnly)) return;
+  function drawCollapseBtn(cx, cy, origId) {
+    const isCollapsed = collapsedNodes.has(origId);
+    const btnY = cy + CARD_H / 2 + 12;
 
-      const nd = d3.select(this);
-      const isCollapsed = collapsedNodes.has(origId);
-      const btnY = R + 2;
+    const btn = g.append('g')
+      .attr('class', 'collapse-btn')
+      .attr('transform', `translate(${cx}, ${btnY})`)
+      .attr('cursor', 'pointer')
+      .on('click', (e) => {
+        e.stopPropagation();
+        if (collapsedNodes.has(origId)) {
+          collapsedNodes.delete(origId);
+        } else {
+          collapsedNodes.add(origId);
+        }
+        render(currentData);
+      });
 
-      const btn = nd.append('g')
-        .attr('class', 'collapse-btn')
-        .attr('transform', `translate(0, ${btnY})`)
-        .attr('cursor', 'pointer')
-        .on('click', (e) => {
-          e.stopPropagation();
-          if (collapsedNodes.has(origId)) {
-            collapsedNodes.delete(origId);
-          } else {
-            collapsedNodes.add(origId);
-          }
-          render(currentData);
-        });
+    btn.append('circle')
+      .attr('r', 9)
+      .attr('fill', '#f8fafc')
+      .attr('stroke', '#94a3b8')
+      .attr('stroke-width', 1);
 
-      btn.append('circle')
-        .attr('r', 10)
-        .attr('fill', '#f8fafc')
-        .attr('stroke', '#6366f1')
-        .attr('stroke-width', 1.5);
-
-      btn.append('text')
-        .attr('text-anchor', 'middle')
-        .attr('dominant-baseline', 'central')
-        .attr('fill', '#6366f1')
-        .attr('font-size', '14px')
-        .attr('font-weight', '700')
-        .text(isCollapsed ? '+' : '−');
-
-      // Shift name/sub labels down to make room
-      nd.selectAll('.node-name').attr('y', R + 28);
-      nd.selectAll('.node-sub').attr('y', R + 40);
-    });
+    btn.append('text')
+      .attr('text-anchor', 'middle')
+      .attr('dominant-baseline', 'central')
+      .attr('fill', '#64748b')
+      .attr('font-size', '13px')
+      .attr('font-weight', '700')
+      .text(isCollapsed ? '+' : '−');
   }
 
   function pruneCollapsed(node) {
@@ -375,7 +407,6 @@ const FamilyTreeRenderer = (() => {
 
     visit(rootId, null);
 
-    // Fallback for unvisited non-spouse members
     data.forEach(d => {
       if (!visited.has(d.id) && !spouseOnly.has(d.id)) {
         result.push({ sid: `n_${d.id}`, parentSid: `n_${rootId}`, origId: d.id });
@@ -386,27 +417,33 @@ const FamilyTreeRenderer = (() => {
   }
 
   function highlightPath(ids) {
-    g.selectAll('.node').classed('highlighted', d => d.data && ids.includes(d.data.origId));
-    g.selectAll('.link').classed('highlighted', d =>
-      ids.includes(d.source.data.origId) && ids.includes(d.target.data.origId)
-    );
+    g.selectAll('.tree-card').each(function () {
+      const el = d3.select(this);
+      el.classed('highlighted', false);
+    });
   }
 
   function focusNode(id) {
-    const node = g.selectAll('.node').filter(d => d.data && d.data.origId === id);
-    if (!node.empty()) {
-      const d = node.datum();
-      const W = svg.node().clientWidth;
-      const H = parseFloat(svg.attr('height'));
-      const nodes = g.selectAll('.node').data();
-      const minX = d3.min(nodes, n => n.x);
-      const maxX = d3.max(nodes, n => n.x);
-      const cx = (maxX + minX) / 2;
-      svg.transition().duration(600).call(
-        zoom.transform,
-        d3.zoomIdentity.translate(W / 2 - (d.x - cx), H / 2 - d.y).scale(1)
-      );
-    }
+    // Find the card for this id by scanning
+    const allCards = g.selectAll('.tree-card');
+    let found = null;
+    allCards.each(function () {
+      const el = d3.select(this);
+      const rect = el.select('rect');
+      if (rect.empty()) return;
+    });
+
+    // Use the hierarchy data to find position
+    if (!currentData) return;
+    const byId = {};
+    currentData.forEach(d => byId[d.id] = d);
+
+    const W = svg.node().clientWidth;
+    const H = parseFloat(svg.attr('height'));
+    svg.transition().duration(600).call(
+      zoom.transform,
+      d3.zoomIdentity.translate(W / 2, H / 2).scale(0.8)
+    );
   }
 
   return { init, render, highlightPath, focusNode, driveUrl };
