@@ -1,0 +1,37 @@
+rules_version = '2';
+
+service firebase.storage {
+  match /b/{bucket}/o {
+
+    // Helper: check if the user is authenticated
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    // Helper: check if the user is an admin
+    function isAdmin() {
+      return isAuthenticated()
+        && firestore.exists(/databases/(default)/documents/users/$(request.auth.uid))
+        && firestore.get(/databases/(default)/documents/users/$(request.auth.uid)).data.role == 'admin';
+    }
+
+    // Helper: check if the user is approved
+    function isApproved() {
+      return isAuthenticated()
+        && firestore.exists(/databases/(default)/documents/users/$(request.auth.uid))
+        && firestore.get(/databases/(default)/documents/users/$(request.auth.uid)).data.approved == true;
+    }
+
+    // All photos: family members can read, admins can write
+    match /photos/{memberId}/{fileName} {
+      allow read: if isAuthenticated() && isApproved();
+      allow write: if isAdmin();
+      allow delete: if isAdmin();
+    }
+
+    // Default deny
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}
