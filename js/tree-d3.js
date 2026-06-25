@@ -105,16 +105,29 @@ const FamilyTreeRenderer = (() => {
       const maxX = d3.max(nodes, d => d.x);
       const cx = (maxX + minX) / 2;
 
-      // Draw links
-      const linkGen = d3.linkVertical()
-        .x(d => d.x - cx)
-        .y(d => d.y);
+      // Draw links — if parent has a spouse, link starts from couple midpoint
+      const SPOUSE_OFFSET = 70;
+      const coupleMidX = {};
+      nodes.forEach(nd => {
+        const id = nd.data.origId;
+        if (spouseOf[id] && spouseOnly.has(spouseOf[id])) {
+          coupleMidX[id] = nd.x + SPOUSE_OFFSET / 2;
+        }
+      });
 
       g.selectAll('.link')
         .data(hierarchy.links())
         .join('path')
         .attr('class', 'link')
-        .attr('d', d => linkGen({ source: d.source, target: d.target }));
+        .attr('d', d => {
+          const srcId = d.source.data.origId;
+          const srcX = (coupleMidX[srcId] != null ? coupleMidX[srcId] : d.source.x) - cx;
+          const srcY = d.source.y;
+          const tgtX = d.target.x - cx;
+          const tgtY = d.target.y;
+          const midY = (srcY + tgtY) / 2;
+          return `M${srcX},${srcY} C${srcX},${midY} ${tgtX},${midY} ${tgtX},${tgtY}`;
+        });
 
       // Draw primary nodes
       const nodeG = g.selectAll('.node')

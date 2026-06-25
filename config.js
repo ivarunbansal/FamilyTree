@@ -27,7 +27,7 @@ window.FT_CONFIG = {
   SHEET_GVIZ_URL: "https://docs.google.com/spreadsheets/d/1YpCkLsT6G1qGwdTuyiUpnRoSHKMJMXhGfr6oyshsBm8/gviz/tq?tqx=out:csv&sheet=Sheet1",
 
   /* ── ADMIN PASSWORD — change this to something private ────────────  */
-  ADMIN_PASSWORD: "gupta2024",
+  ADMIN_PASSWORD: "adminpw",
 
   /* ── BRANDING ──────────────────────────────────────────────────────  */
   FAMILY_NAME: "The Gupta Family",
