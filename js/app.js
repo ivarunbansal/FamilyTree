@@ -334,7 +334,7 @@
       </div>
       <div class="drawer-actions">
         ${isAdmin ? `
-          <button class="btn btn-gold btn-sm" onclick="openEditModal('${m.id}')">Edit</button>
+          <button class="btn btn-accent btn-sm" onclick="openEditModal('${m.id}')">Edit</button>
           <button class="btn btn-danger btn-sm" onclick="confirmDelete('${m.id}')">Delete</button>
         ` : ''}
         <button class="btn btn-outline btn-sm" onclick="focusTreeNode('${m.id}')">Find in tree</button>

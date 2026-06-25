@@ -203,8 +203,7 @@ const FamilyTreeRenderer = (() => {
 
   function shortName(m) {
     if (!m) return '';
-    const parts = (m.name || '').split(' ');
-    return parts.length > 2 ? parts[0] + ' ' + parts[parts.length - 1] : m.name;
+    return m.name || '';
   }
 
   function renderPhoto(nd, m, R) {
@@ -327,14 +326,14 @@ const FamilyTreeRenderer = (() => {
 
       btn.append('circle')
         .attr('r', 10)
-        .attr('fill', 'var(--surface-2, #1e293b)')
-        .attr('stroke', 'var(--gold, #c9a84c)')
+        .attr('fill', '#f8fafc')
+        .attr('stroke', '#6366f1')
         .attr('stroke-width', 1.5);
 
       btn.append('text')
         .attr('text-anchor', 'middle')
         .attr('dominant-baseline', 'central')
-        .attr('fill', 'var(--gold, #c9a84c)')
+        .attr('fill', '#6366f1')
         .attr('font-size', '14px')
         .attr('font-weight', '700')
         .text(isCollapsed ? '+' : '−');
