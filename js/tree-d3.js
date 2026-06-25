@@ -183,11 +183,16 @@ const FamilyTreeRenderer = (() => {
       // Collapse/expand toggle buttons
       addCollapseButtons(nodeG, nodes, byId, data, spouseOnly, cx, R);
 
-      // Center tree
+      // Center and auto-fit tree
       const svgEl = svg.node();
       const W = svgEl.clientWidth || 900;
       const H = parseFloat(svg.attr('height'));
-      svg.call(zoom.transform, d3.zoomIdentity.translate(W / 2, 60).scale(1));
+      const treeWidth = (maxX - minX) + SPOUSE_OFFSET + 100;
+      const treeHeight = (d3.max(nodes, d => d.y) || 0) + 120;
+      const scaleX = W / Math.max(treeWidth, 1);
+      const scaleY = H / Math.max(treeHeight, 1);
+      const autoScale = Math.max(Math.min(scaleX, scaleY, 1), 0.35);
+      svg.call(zoom.transform, d3.zoomIdentity.translate(W / 2, 40).scale(autoScale));
 
     } catch (e) {
       console.warn('Tree render error:', e);

@@ -78,7 +78,7 @@ body {
 .brand strong { font-family: var(--ff-display); font-size: 17px; font-weight: 600; }
 .brand small   { display: block; font-size: 11px; color: var(--text-3); letter-spacing: .04em; }
 
-.nav-actions { display: flex; align-items: center; gap: 8px; }
+.nav-actions { display: flex; align-items: center; gap: 8px; flex-shrink: 1; overflow-x: auto; }
 
 .btn {
   display: inline-flex; align-items: center; gap: 6px;
@@ -674,10 +674,46 @@ body {
   .form-grid { grid-template-columns: 1fr; }
 }
 @media (max-width: 600px) {
-  .topbar { padding: 0 16px; }
+  .topbar { padding: 0 12px; height: 56px; }
+  .topbar .brand strong { font-size: 14px; }
+  .topbar .brand small { display: none; }
+  .topbar .brand-mark { width: 30px; height: 30px; font-size: 13px; }
+  .nav-actions { gap: 4px; }
+  .nav-actions .btn { padding: 6px 10px; font-size: 11px; }
+  .nav-actions .btn-label-hide { display: none; }
+
+  .hero { padding: 32px 16px 28px; }
+  .hero h1 { font-size: 28px; }
+  .hero p { font-size: 14px; }
+  .hero-stats { gap: 16px; }
+  .hero-stat .stat-number { font-size: 28px; }
+  .hero-stat .stat-label { font-size: 9px; }
+  .sync-badge { font-size: 11px; padding: 6px 14px; }
+
+  .workspace { padding: 0 12px; margin: 16px auto; gap: 16px; }
+  .sidebar { padding: 14px; border-radius: 12px; }
+  .sidebar-section { margin-bottom: 14px; }
+
+  .tree-panel { border-radius: 12px; }
+  #treeContainer { min-height: 400px; }
+
   .drawer { width: 100vw; }
-  .hero-stats { gap: 20px; }
+  .drawer-header { padding: 16px; }
+  .drawer-body { padding: 16px; }
+  .drawer-photo { width: 56px; height: 56px; }
+  .drawer-photo-placeholder { width: 56px; height: 56px; font-size: 22px; }
+  .drawer-name { font-size: 18px; }
   .info-grid { grid-template-columns: 1fr; }
+
+  .modal-panel { margin: 8px; max-height: 90vh; }
+  .form-grid { grid-template-columns: 1fr; }
+
+  .section-header h2 { font-size: 28px; }
+  .tl-scroll { gap: 12px; }
+  .tl-card { min-width: 140px; padding: 14px; }
+  .gallery-grid { grid-template-columns: repeat(2, 1fr); gap: 8px; }
+
+  .fab { bottom: 16px; right: 16px; width: 48px; height: 48px; font-size: 22px; }
 }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; }
