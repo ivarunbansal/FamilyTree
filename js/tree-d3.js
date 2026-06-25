@@ -70,14 +70,16 @@ const FamilyTreeRenderer = (() => {
       }
     });
 
-    // Find root
+    // Find root — pick the person in the lowest generation who isn't spouse-only
     let rootId = null;
-    const gen1 = data.filter(d => String(d.generation) === '1' && !spouseOnly.has(d.id));
-    if (gen1.length) rootId = gen1[0].id;
-    else {
-      const notChild = data.filter(d => !d.fatherId && !d.motherId && !spouseOnly.has(d.id));
-      if (notChild.length) rootId = notChild[0].id;
-      else rootId = data[0].id;
+    const primaryMembers = data.filter(d => !spouseOnly.has(d.id));
+    const withGen = primaryMembers.filter(d => d.generation != null && d.generation !== '');
+    if (withGen.length) {
+      withGen.sort((a, b) => Number(a.generation) - Number(b.generation));
+      rootId = withGen[0].id;
+    } else {
+      const notChild = primaryMembers.filter(d => !d.fatherId && !d.motherId);
+      rootId = notChild.length ? notChild[0].id : (primaryMembers[0] || data[0]).id;
     }
     currentRootId = rootId;
 
