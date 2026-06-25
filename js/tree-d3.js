@@ -4,14 +4,13 @@
 
 const FamilyTreeRenderer = (() => {
   let svg, g, zoom, members = [], onNodeClick = null;
+  let collapsedNodes = new Set();
+  let currentData = null, currentById = null, currentRootId = null;
 
-  // Convert Google Drive share URL to direct image URL
   function driveUrl(url) {
     if (!url) return null;
-    // https://drive.google.com/file/d/FILE_ID/view
     const m = url.match(/\/d\/([^/]+)/);
     if (m) return `https://drive.google.com/thumbnail?id=${m[1]}&sz=w200`;
-    // Already direct or other host
     return url;
   }
 
@@ -19,7 +18,6 @@ const FamilyTreeRenderer = (() => {
     onNodeClick = clickCallback;
     const container = document.getElementById(containerId);
     container.innerHTML = '';
-    const W = container.clientWidth || 900;
     const H = 600;
 
     svg = d3.select(`#${containerId}`)
@@ -28,7 +26,6 @@ const FamilyTreeRenderer = (() => {
       .attr('height', H)
       .style('font-family', 'Inter, sans-serif');
 
-    // Defs: clip paths for circular photos will be added per node
     svg.append('defs');
 
     zoom = d3.zoom()
@@ -42,46 +39,50 @@ const FamilyTreeRenderer = (() => {
   function render(data) {
     if (!g) return;
     members = data;
+    currentData = data;
     g.selectAll('*').remove();
+    svg.select('defs').selectAll('*').remove();
 
     if (!data || !data.length) return;
 
-    // Build tree hierarchy: pick person with no father & no mother as root
-    // If multiple roots, use first generation 1 or first entry
     const byId = {};
     data.forEach(d => byId[d.id] = d);
+    currentById = byId;
 
-    // Find root candidates
-    const childIds = new Set();
+    // Build spouse lookup (bidirectional)
+    const spouseOf = {};
     data.forEach(d => {
-      if (d.fatherId) childIds.add(d.fatherId);
-      if (d.motherId) childIds.add(d.motherId);
-    });
-
-    // Build parent-child map
-    const childrenMap = {};
-    data.forEach(d => {
-      const pid = d.fatherId || d.motherId;
-      if (pid) {
-        if (!childrenMap[pid]) childrenMap[pid] = [];
-        childrenMap[pid].push(d.id);
+      if (d.spouseId) {
+        spouseOf[d.id] = d.spouseId;
+        spouseOf[d.spouseId] = d.id;
       }
     });
 
-    // Find topmost ancestor
+    // Married-in members: no fatherId/motherId, have a spouseId set,
+    // and no children through the father line (children use fatherId for tree structure).
+    const hasFatherChildren = new Set();
+    data.forEach(d => { if (d.fatherId) hasFatherChildren.add(d.fatherId); });
+
+    const spouseOnly = new Set();
+    data.forEach(d => {
+      if (!d.fatherId && !d.motherId && d.spouseId && !hasFatherChildren.has(d.id)) {
+        spouseOnly.add(d.id);
+      }
+    });
+
+    // Find root
     let rootId = null;
-    // Prefer gen 1
-    const gen1 = data.filter(d => String(d.generation) === '1');
+    const gen1 = data.filter(d => String(d.generation) === '1' && !spouseOnly.has(d.id));
     if (gen1.length) rootId = gen1[0].id;
     else {
-      // person who is not a child of anyone
-      const notChild = data.filter(d => !childIds.has(d.id));
+      const notChild = data.filter(d => !d.fatherId && !d.motherId && !spouseOnly.has(d.id));
       if (notChild.length) rootId = notChild[0].id;
       else rootId = data[0].id;
     }
+    currentRootId = rootId;
 
-    // Build stratify-able flat list
-    const stratData = buildStratData(data, byId, rootId);
+    // Build stratify data excluding spouse-only members
+    const stratData = buildStratData(data, byId, rootId, spouseOnly);
     if (!stratData.length) return;
 
     try {
@@ -90,13 +91,15 @@ const FamilyTreeRenderer = (() => {
         .parentId(d => d.parentSid)
         (stratData);
 
+      // Apply collapse: remove children of collapsed nodes
+      pruneCollapsed(hierarchy);
+
       const treeLayout = d3.tree()
-        .nodeSize([120, 140])
+        .nodeSize([140, 160])
         .separation((a, b) => a.parent === b.parent ? 1.3 : 1.8);
 
       treeLayout(hierarchy);
 
-      // Center
       const nodes = hierarchy.descendants();
       const minX = d3.min(nodes, d => d.x);
       const maxX = d3.max(nodes, d => d.x);
@@ -113,10 +116,7 @@ const FamilyTreeRenderer = (() => {
         .attr('class', 'link')
         .attr('d', d => linkGen({ source: d.source, target: d.target }));
 
-      // Draw spouse dashes
-      drawSpouseLinks(data, nodes, cx, byId);
-
-      // Draw nodes
+      // Draw primary nodes
       const nodeG = g.selectAll('.node')
         .data(nodes)
         .join('g')
@@ -135,61 +135,24 @@ const FamilyTreeRenderer = (() => {
 
       const R = 32;
 
-      // Circle background
-      nodeG.append('circle')
-        .attr('r', R)
-        .attr('fill', '#fff');
+      nodeG.append('circle').attr('r', R).attr('fill', '#fff');
 
-      // Photo or initial
       nodeG.each(function(d) {
         const m = byId[d.data.origId];
         if (!m) return;
-        const nd = d3.select(this);
-        const imgUrl = driveUrl(m.photoUrl);
-        const clipId = `clip-${m.id}`;
-
-        // Add clipPath
-        svg.select('defs').append('clipPath')
-          .attr('id', clipId)
-          .append('circle')
-          .attr('r', R - 3)
-          .attr('cx', 0).attr('cy', 0);
-
-        if (imgUrl) {
-          nd.append('image')
-            .attr('href', imgUrl)
-            .attr('x', -(R-3)).attr('y', -(R-3))
-            .attr('width', (R-3)*2).attr('height', (R-3)*2)
-            .attr('clip-path', `url(#${clipId})`)
-            .attr('preserveAspectRatio', 'xMidYMid slice')
-            .on('error', function() {
-              // On image error, show initial
-              this.remove();
-              showInitial(nd, m, R);
-            });
-        } else {
-          showInitial(nd, m, R);
-        }
+        renderPhoto(d3.select(this), m, R);
       });
 
-      // Outer ring
       nodeG.append('circle')
         .attr('r', R)
         .attr('fill', 'none')
         .attr('stroke-width', 3);
 
-      // Name label
       nodeG.append('text')
         .attr('class', 'node-name')
         .attr('y', R + 16)
-        .text(d => {
-          const m = byId[d.data.origId];
-          if (!m) return '';
-          const parts = (m.name || '').split(' ');
-          return parts.length > 2 ? parts[0] + ' ' + parts[parts.length-1] : m.name;
-        });
+        .text(d => shortName(byId[d.data.origId]));
 
-      // Sub label (year or occupation)
       nodeG.append('text')
         .attr('class', 'node-sub')
         .attr('y', R + 28)
@@ -201,63 +164,189 @@ const FamilyTreeRenderer = (() => {
           return '';
         });
 
-      // Center tree on load
+      // Draw spouse nodes beside their partners
+      drawSpousePairs(data, nodes, cx, byId, spouseOf, spouseOnly);
+
+      // Collapse/expand toggle buttons
+      addCollapseButtons(nodeG, nodes, byId, data, spouseOnly, cx, R);
+
+      // Center tree
       const svgEl = svg.node();
       const W = svgEl.clientWidth || 900;
       const H = parseFloat(svg.attr('height'));
-      svg.call(zoom.transform, d3.zoomIdentity.translate(W/2, 60).scale(1));
+      svg.call(zoom.transform, d3.zoomIdentity.translate(W / 2, 60).scale(1));
 
-    } catch(e) {
+    } catch (e) {
       console.warn('Tree render error:', e);
     }
   }
 
-  function showInitial(nd, m, R) {
-    const colors = {male:'#1e40af', female:'#9d174d', other:'#4c1d95', '':'#1e293b'};
-    const gender = (m.gender||'').toLowerCase();
-    nd.append('circle')
-      .attr('r', R-3)
-      .attr('fill', colors[gender] || colors['']);
-    nd.append('text')
-      .attr('text-anchor','middle')
-      .attr('dominant-baseline','central')
-      .attr('font-size', '18px')
-      .attr('font-weight','600')
-      .attr('font-family','Playfair Display, serif')
-      .attr('fill','#e2d9cc')
-      .text(() => (m.name||'?')[0].toUpperCase());
+  function shortName(m) {
+    if (!m) return '';
+    const parts = (m.name || '').split(' ');
+    return parts.length > 2 ? parts[0] + ' ' + parts[parts.length - 1] : m.name;
   }
 
-  function drawSpouseLinks(data, nodes, cx, byId) {
+  function renderPhoto(nd, m, R) {
+    const imgUrl = driveUrl(m.photoUrl);
+    const clipId = `clip-${m.id}`;
+    svg.select('defs').append('clipPath')
+      .attr('id', clipId)
+      .append('circle')
+      .attr('r', R - 3).attr('cx', 0).attr('cy', 0);
+
+    if (imgUrl) {
+      nd.append('image')
+        .attr('href', imgUrl)
+        .attr('x', -(R - 3)).attr('y', -(R - 3))
+        .attr('width', (R - 3) * 2).attr('height', (R - 3) * 2)
+        .attr('clip-path', `url(#${clipId})`)
+        .attr('preserveAspectRatio', 'xMidYMid slice')
+        .on('error', function () {
+          this.remove();
+          showInitial(nd, m, R);
+        });
+    } else {
+      showInitial(nd, m, R);
+    }
+  }
+
+  function showInitial(nd, m, R) {
+    const colors = { male: '#1e40af', female: '#9d174d', other: '#4c1d95', '': '#1e293b' };
+    const gender = (m.gender || '').toLowerCase();
+    nd.append('circle')
+      .attr('r', R - 3)
+      .attr('fill', colors[gender] || colors['']);
+    nd.append('text')
+      .attr('text-anchor', 'middle')
+      .attr('dominant-baseline', 'central')
+      .attr('font-size', '18px')
+      .attr('font-weight', '600')
+      .attr('font-family', 'Playfair Display, serif')
+      .attr('fill', '#e2d9cc')
+      .text(() => (m.name || '?')[0].toUpperCase());
+  }
+
+  function drawSpousePairs(data, nodes, cx, byId, spouseOf, spouseOnly) {
     const drawn = new Set();
-    data.forEach(d => {
-      if (!d.spouseId) return;
-      const key = [d.id, d.spouseId].sort().join('_');
+    const OFFSET = 70;
+
+    nodes.forEach(nd => {
+      const id = nd.data.origId;
+      const sid = spouseOf[id];
+      if (!sid) return;
+      const key = [id, sid].sort().join('_');
       if (drawn.has(key)) return;
       drawn.add(key);
-      const na = nodes.find(n => n.data.origId === d.id);
-      const nb = nodes.find(n => n.data.origId === d.spouseId);
-      if (!na || !nb) return;
-      g.insert('line','g')
-        .attr('class','spouse-link')
-        .attr('x1', na.x - cx).attr('y1', na.y)
-        .attr('x2', nb.x - cx).attr('y2', nb.y);
+
+      const spouse = byId[sid];
+      if (!spouse) return;
+
+      const px = nd.x - cx;
+      const py = nd.y;
+      const sx = px + OFFSET;
+      const sy = py;
+
+      // Spouse connector line
+      g.insert('line', 'g')
+        .attr('class', 'spouse-link')
+        .attr('x1', px).attr('y1', py)
+        .attr('x2', sx).attr('y2', sy);
+
+      // Render spouse node
+      const R = 28;
+      const gender = (spouse.gender || '').toLowerCase();
+      const dec = spouse.dod ? 'deceased' : '';
+      const spG = g.append('g')
+        .attr('class', `node spouse-node ${gender} ${dec}`.trim())
+        .attr('transform', `translate(${sx},${sy})`)
+        .attr('cursor', 'pointer')
+        .on('click', () => { if (onNodeClick) onNodeClick(sid); });
+
+      spG.append('circle').attr('r', R).attr('fill', '#fff');
+      renderPhoto(spG, spouse, R);
+      spG.append('circle').attr('r', R).attr('fill', 'none').attr('stroke-width', 2.5);
+
+      spG.append('text')
+        .attr('class', 'node-name')
+        .attr('y', R + 14)
+        .attr('font-size', '11px')
+        .text(shortName(spouse));
     });
   }
 
-  function buildStratData(data, byId, rootId) {
-    // Simple flat tree: father → children; if no father, mother → children
+  function hasVisibleChildren(origId, data, spouseOnly) {
+    return data.some(child =>
+      !spouseOnly.has(child.id) &&
+      (child.fatherId === origId || child.motherId === origId)
+    );
+  }
+
+  function addCollapseButtons(nodeG, nodes, byId, data, spouseOnly, cx, R) {
+    nodeG.each(function (d) {
+      const origId = d.data.origId;
+      if (!hasVisibleChildren(origId, data, spouseOnly)) return;
+
+      const nd = d3.select(this);
+      const isCollapsed = collapsedNodes.has(origId);
+      const btnY = R + 2;
+
+      const btn = nd.append('g')
+        .attr('class', 'collapse-btn')
+        .attr('transform', `translate(0, ${btnY})`)
+        .attr('cursor', 'pointer')
+        .on('click', (e) => {
+          e.stopPropagation();
+          if (collapsedNodes.has(origId)) {
+            collapsedNodes.delete(origId);
+          } else {
+            collapsedNodes.add(origId);
+          }
+          render(currentData);
+        });
+
+      btn.append('circle')
+        .attr('r', 10)
+        .attr('fill', 'var(--surface-2, #1e293b)')
+        .attr('stroke', 'var(--gold, #c9a84c)')
+        .attr('stroke-width', 1.5);
+
+      btn.append('text')
+        .attr('text-anchor', 'middle')
+        .attr('dominant-baseline', 'central')
+        .attr('fill', 'var(--gold, #c9a84c)')
+        .attr('font-size', '14px')
+        .attr('font-weight', '700')
+        .text(isCollapsed ? '+' : '−');
+
+      // Shift name/sub labels down to make room
+      nd.selectAll('.node-name').attr('y', R + 28);
+      nd.selectAll('.node-sub').attr('y', R + 40);
+    });
+  }
+
+  function pruneCollapsed(node) {
+    if (!node.children) return;
+    if (collapsedNodes.has(node.data.origId)) {
+      node._children = node.children;
+      node.children = null;
+      return;
+    }
+    node.children.forEach(c => pruneCollapsed(c));
+  }
+
+  function buildStratData(data, byId, rootId, spouseOnly) {
     const result = [];
     const visited = new Set();
 
     function visit(id, parentSid) {
       if (visited.has(id)) return;
+      if (spouseOnly.has(id)) return;
       visited.add(id);
       const m = byId[id];
       if (!m) return;
       const sid = `n_${id}`;
       result.push({ sid, parentSid, origId: id });
-      // Visit children
       data.forEach(child => {
         if (child.fatherId === id || (!child.fatherId && child.motherId === id)) {
           visit(child.id, sid);
@@ -267,9 +356,9 @@ const FamilyTreeRenderer = (() => {
 
     visit(rootId, null);
 
-    // Add any unvisited members as children of root (data integrity fallback)
+    // Fallback for unvisited non-spouse members
     data.forEach(d => {
-      if (!visited.has(d.id)) {
+      if (!visited.has(d.id) && !spouseOnly.has(d.id)) {
         result.push({ sid: `n_${d.id}`, parentSid: `n_${rootId}`, origId: d.id });
       }
     });
@@ -278,26 +367,25 @@ const FamilyTreeRenderer = (() => {
   }
 
   function highlightPath(ids) {
-    g.selectAll('.node').classed('highlighted', d => ids.includes(d.data.origId));
+    g.selectAll('.node').classed('highlighted', d => d.data && ids.includes(d.data.origId));
     g.selectAll('.link').classed('highlighted', d =>
       ids.includes(d.source.data.origId) && ids.includes(d.target.data.origId)
     );
   }
 
   function focusNode(id) {
-    const node = g.selectAll('.node').filter(d => d.data.origId === id);
+    const node = g.selectAll('.node').filter(d => d.data && d.data.origId === id);
     if (!node.empty()) {
       const d = node.datum();
       const W = svg.node().clientWidth;
       const H = parseFloat(svg.attr('height'));
-      // Get current cx offset
       const nodes = g.selectAll('.node').data();
       const minX = d3.min(nodes, n => n.x);
       const maxX = d3.max(nodes, n => n.x);
       const cx = (maxX + minX) / 2;
       svg.transition().duration(600).call(
         zoom.transform,
-        d3.zoomIdentity.translate(W/2 - (d.x - cx), H/2 - d.y).scale(1)
+        d3.zoomIdentity.translate(W / 2 - (d.x - cx), H / 2 - d.y).scale(1)
       );
     }
   }

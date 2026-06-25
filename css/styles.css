@@ -298,6 +298,19 @@ body {
   stroke: var(--gold-dim); stroke-width: 1.5;
   stroke-dasharray: 4,3;
 }
+.spouse-node .node-name {
+  font-size: 10px;
+}
+.collapse-btn circle {
+  filter: none !important;
+  stroke-width: 1.5 !important;
+}
+.collapse-btn:hover circle {
+  fill: var(--gold, #c9a84c) !important;
+}
+.collapse-btn:hover text {
+  fill: #fff !important;
+}
 
 /* ── PROFILE DRAWER ── */
 .drawer {
